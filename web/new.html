@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>New Site - Site Manager</title>
+    <link rel="stylesheet" href="/assets/style.css">
+    <script src="/assets/app.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="/" class="brand">Site Manager</a>
+        <div class="user-info" id="user-info"></div>
+    </nav>
+    <main>
+        <div class="header-row">
+            <h2>Create New Site</h2>
+        </div>
+        <form id="create-form" style="max-width:520px">
+            <div class="form-group">
+                <label for="name">Site Name</label>
+                <input type="text" id="name" required placeholder="my-cool-app"
+                       pattern="[a-zA-Z0-9 _-]+" title="Letters, numbers, spaces, and dashes">
+            </div>
+
+            <div class="source-toggle">
+                <button type="button" class="toggle active" data-source="upload">Upload</button>
+                <button type="button" class="toggle" data-source="git">Git Repository</button>
+            </div>
+
+            <div id="upload-section" class="source-section">
+                <div class="form-group">
+                    <div class="dropzone" id="dropzone">
+                        <p>Drop a .zip file here or click to browse</p>
+                        <input type="file" id="file-input" accept=".zip" hidden>
+                    </div>
+                </div>
+            </div>
+
+            <div id="git-section" class="source-section" style="display:none">
+                <div class="form-group">
+                    <label for="repo-input">Repository</label>
+                    <input type="text" id="repo-input" placeholder="owner/repo or full URL" list="repo-list">
+                    <datalist id="repo-list"></datalist>
+                </div>
+                <div class="form-group">
+                    <label for="branch">Branch</label>
+                    <input type="text" id="branch" placeholder="main" list="branch-list">
+                    <datalist id="branch-list"></datalist>
+                </div>
+                <div class="form-group">
+                    <label for="subdirectory">Subdirectory (optional)</label>
+                    <input type="text" id="subdirectory" placeholder="dist">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="submit-btn">Create Site</button>
+        </form>
+    </main>
+    <script>
+        let sourceType = 'upload';
+        let selectedFile = null;
+
+        // Source type toggle
+        document.querySelectorAll('.source-toggle .toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.source-toggle .toggle').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                sourceType = btn.dataset.source;
+                document.getElementById('upload-section').style.display = sourceType === 'upload' ? '' : 'none';
+                document.getElementById('git-section').style.display = sourceType === 'git' ? '' : 'none';
+            });
+        });
+
+        // Dropzone
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+
+        dropzone.addEventListener('click', () => fileInput.click());
+        dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+        dropzone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length) handleFile(fileInput.files[0]);
+        });
+
+        function handleFile(file) {
+            selectedFile = file;
+            dropzone.classList.add('has-file');
+            dropzone.querySelector('p').textContent = file.name;
+        }
+
+        // Load repos for datalist
+        async function loadRepos() {
+            try {
+                const repos = await apiJson('/api/github/repos');
+                const list = document.getElementById('repo-list');
+                repos.forEach(r => {
+                    const opt = document.createElement('option');
+                    opt.value = r.full_name;
+                    list.appendChild(opt);
+                });
+            } catch (e) {
+                // GitHub not configured — manual entry is fine
+            }
+        }
+        loadRepos();
+
+        // Load branches when repo changes
+        const repoInput = document.getElementById('repo-input');
+        let branchTimeout = null;
+        repoInput.addEventListener('input', () => {
+            clearTimeout(branchTimeout);
+            branchTimeout = setTimeout(loadBranches, 500);
+        });
+
+        function parseOwnerRepo(input) {
+            // Handle full URLs: https://github.com/owner/repo or https://github.com/owner/repo.git
+            const match = input.match(/github\.com\/([^/]+\/[^/.]+?)(?:\.git)?$/);
+            if (match) return match[1];
+            // Handle owner/repo directly
+            const parts = input.split('/');
+            if (parts.length === 2 && parts[0] && parts[1]) return input;
+            return null;
+        }
+
+        async function loadBranches() {
+            const branchInput = document.getElementById('branch');
+            const branchList = document.getElementById('branch-list');
+            const repoValue = repoInput.value.trim();
+            if (!repoValue) return;
+
+            const ownerRepo = parseOwnerRepo(repoValue);
+            if (!ownerRepo) return;
+
+            const [owner, repo] = ownerRepo.split('/');
+            branchList.innerHTML = '';
+
+            try {
+                const branches = await apiJson(`/api/github/repos/${owner}/${repo}/branches`);
+                branches.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b.name;
+                    branchList.appendChild(opt);
+                });
+                // Auto-fill with first branch if empty
+                if (!branchInput.value && branches.length > 0) {
+                    branchInput.value = branches[0].name;
+                }
+            } catch (e) {
+                // API unavailable — user can still type a branch name manually
+            }
+        }
+
+        // Submit
+        document.getElementById('create-form').addEventListener('submit', async e => {
+            e.preventDefault();
+            const name = document.getElementById('name').value.trim();
+            if (!name) return;
+
+            const submitBtn = document.getElementById('submit-btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+
+            try {
+                if (sourceType === 'git') {
+                    let repoUrl = repoInput.value.trim();
+                    // Convert owner/repo to full URL
+                    if (repoUrl && !repoUrl.startsWith('http')) {
+                        repoUrl = `https://github.com/${repoUrl}`;
+                    }
+                    const branch = document.getElementById('branch').value.trim();
+                    if (!branch) {
+                        toast('Please enter a branch name', 'error');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Create Site';
+                        return;
+                    }
+                    const subdirectory = document.getElementById('subdirectory').value.trim();
+
+                    await apiJson('/api/sites', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            name,
+                            source_type: 'git',
+                            repo_url: repoUrl,
+                            branch,
+                            subdirectory: subdirectory || null,
+                        }),
+                    });
+                } else {
+                    // Create upload site then upload file
+                    const site = await apiJson('/api/sites', {
+                        method: 'POST',
+                        body: JSON.stringify({ name, source_type: 'upload' }),
+                    });
+
+                    if (selectedFile) {
+                        const formData = new FormData();
+                        formData.append('file', selectedFile);
+                        const resp = await fetch(`/api/sites/${site.slug}/upload`, {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        if (!resp.ok) {
+                            const err = await resp.json();
+                            throw new Error(err.error || 'Upload failed');
+                        }
+                    }
+                }
+
+                window.location.href = '/';
+            } catch (e) {
+                toast(e.message, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Site';
+            }
+        });
+    </script>
+</body>
+</html>

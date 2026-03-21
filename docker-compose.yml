@@ -1,0 +1,25 @@
+services:
+  site-manager:
+    build: .
+    container_name: site-manager
+    environment:
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      ALLOWED_DOMAIN: ${ALLOWED_DOMAIN}
+      EXTERNAL_URL: ${EXTERNAL_URL}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - data:/var/lib/site-manager
+      - caddy_config:/etc/caddy
+      - caddy_data:/data/caddy
+    restart: unless-stopped
+
+volumes:
+  data:
+  caddy_config:
+  caddy_data:

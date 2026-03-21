@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Site Details - Site Manager</title>
+    <link rel="stylesheet" href="/assets/style.css">
+    <script src="/assets/app.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="/" class="brand">Site Manager</a>
+        <div class="user-info" id="user-info"></div>
+    </nav>
+    <main>
+        <div id="content" class="loading">Loading...</div>
+    </main>
+    <script>
+        const slug = window.location.pathname.split('/').pop();
+
+        async function loadSite() {
+            const container = document.getElementById('content');
+            try {
+                const site = await apiJson(`/api/sites/${slug}`);
+                document.title = `${site.name} - Site Manager`;
+
+                const siteUrl = `/s/${site.slug}/`;
+
+                container.innerHTML = `
+                    <div class="site-header">
+                        <h2>${esc(site.name)}</h2>
+                        <a href="${siteUrl}" target="_blank" class="site-url">${siteUrl}</a>
+                        <div class="actions">
+                            ${site.source_type === 'git'
+                                ? '<button class="btn btn-secondary" onclick="redeploy()">Redeploy</button>'
+                                : '<button class="btn btn-secondary" onclick="document.getElementById(\'upload-input\').click()">Upload New Version</button>'
+                            }
+                            <a href="${siteUrl}" target="_blank" class="btn btn-secondary">Open in New Tab</a>
+                            <button class="btn btn-danger btn-sm" onclick="deleteSite()">Delete</button>
+                            <input type="file" id="upload-input" accept=".zip" hidden>
+                        </div>
+                    </div>
+
+                    <div class="site-info">
+                        <div class="info-row">
+                            <span class="info-label">Type</span>
+                            <span class="info-value"><span class="badge ${site.source_type}">${site.source_type}</span></span>
+                        </div>
+                        ${site.repo_url ? `
+                        <div class="info-row">
+                            <span class="info-label">Repository</span>
+                            <span class="info-value">${esc(site.repo_url)}</span>
+                        </div>` : ''}
+                        ${site.branch ? `
+                        <div class="info-row">
+                            <span class="info-label">Branch</span>
+                            <span class="info-value">${esc(site.branch)}</span>
+                        </div>` : ''}
+                        ${site.subdirectory ? `
+                        <div class="info-row">
+                            <span class="info-label">Subdirectory</span>
+                            <span class="info-value">${esc(site.subdirectory)}</span>
+                        </div>` : ''}
+                        <div class="info-row">
+                            <span class="info-label">Created by</span>
+                            <span class="info-value">${esc(site.created_by)}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Last deployed</span>
+                            <span class="info-value">${timeAgo(site.last_deployed_at)}</span>
+                        </div>
+                    </div>
+
+                    <div class="preview-container">
+                        <h3>Preview</h3>
+                        <iframe src="${siteUrl}" class="preview-frame" id="preview-frame"></iframe>
+                    </div>
+                `;
+
+                // Upload handler
+                const uploadInput = document.getElementById('upload-input');
+                if (uploadInput) {
+                    uploadInput.addEventListener('change', async () => {
+                        if (!uploadInput.files.length) return;
+                        const formData = new FormData();
+                        formData.append('file', uploadInput.files[0]);
+                        try {
+                            await fetch(`/api/sites/${slug}/upload`, {
+                                method: 'POST',
+                                body: formData,
+                            });
+                            toast('Upload complete');
+                            loadSite();
+                        } catch (e) {
+                            toast(e.message, 'error');
+                        }
+                    });
+                }
+            } catch (e) {
+                container.innerHTML = `<div class="empty-state"><h3>Site not found</h3><p><a href="/">Back to dashboard</a></p></div>`;
+            }
+        }
+
+        async function redeploy() {
+            try {
+                const btn = document.querySelector('.actions .btn-secondary');
+                btn.disabled = true;
+                btn.textContent = 'Deploying...';
+                await apiJson(`/api/sites/${slug}/deploy`, { method: 'POST' });
+                toast('Deploy complete');
+                loadSite();
+            } catch (e) {
+                toast(e.message, 'error');
+                loadSite();
+            }
+        }
+
+        async function deleteSite() {
+            if (!confirm('Delete this site? This cannot be undone.')) return;
+            try {
+                await api(`/api/sites/${slug}`, { method: 'DELETE' });
+                window.location.href = '/';
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        }
+
+        function esc(str) {
+            if (!str) return '';
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        loadSite();
+    </script>
+</body>
+</html>

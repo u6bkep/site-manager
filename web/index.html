@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Site Manager</title>
+    <link rel="stylesheet" href="/assets/style.css">
+    <script src="/assets/app.js"></script>
+</head>
+<body>
+    <nav>
+        <a href="/" class="brand">Site Manager</a>
+        <div class="user-info" id="user-info"></div>
+    </nav>
+    <main>
+        <div class="header-row">
+            <h2>Sites</h2>
+            <a href="/sites/new" class="btn btn-primary">+ New Site</a>
+        </div>
+        <div id="content" class="loading">Loading...</div>
+    </main>
+    <script>
+        async function loadSites() {
+            const container = document.getElementById('content');
+            try {
+                const sites = await apiJson('/api/sites');
+                if (sites.length === 0) {
+                    container.className = 'empty-state';
+                    container.innerHTML = `
+                        <h3>No sites yet</h3>
+                        <p>Create your first site to get started.</p>
+                        <a href="/sites/new" class="btn btn-primary">+ New Site</a>
+                    `;
+                    return;
+                }
+                container.className = 'sites-grid';
+                container.innerHTML = sites.map(site => `
+                    <a href="/sites/${site.slug}" class="site-card">
+                        <h3>${esc(site.name)}</h3>
+                        <span class="badge ${site.source_type}">${site.source_type}</span>
+                        <p class="url">/s/${site.slug}/</p>
+                        <p class="meta">Deployed ${timeAgo(site.last_deployed_at)}</p>
+                    </a>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = `<p class="empty-state">Failed to load sites.</p>`;
+            }
+        }
+
+        function esc(str) {
+            const d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        loadSites();
+    </script>
+</body>
+</html>
