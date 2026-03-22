@@ -41,10 +41,6 @@ pub fn generate_caddyfile(state: &AppState) -> String {
     handle /s/* {{
         forward_auth {app_upstream} {{
             uri /auth/verify
-            @unauthorized status 401
-            handle_response @unauthorized {{
-                redir /login?redirect={{http.request.uri}}
-            }}
         }}
         uri strip_prefix /s
         file_server {{

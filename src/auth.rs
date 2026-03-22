@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{FromRequestParts, Query, State},
-    http::{StatusCode, request::Parts},
+    http::{HeaderMap, StatusCode, request::Parts},
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::CookieJar;
@@ -307,30 +307,38 @@ pub async fn google_callback(
 }
 
 // GET /auth/verify — forward-auth endpoint for Caddy
-pub async fn verify(State(state): State<Arc<AppState>>, jar: CookieJar) -> StatusCode {
-    let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) else {
-        return StatusCode::UNAUTHORIZED;
-    };
+// Returns 200 if authenticated. Otherwise returns a 302 redirect to /login,
+// which Caddy's forward_auth passes through to the client.
+pub async fn verify(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    jar: CookieJar,
+) -> Response {
+    let authenticated = (|| async {
+        let token = jar.get(SESSION_COOKIE)?.value().to_string();
+        let row = sqlx::query_as::<_, SessionRow>(
+            "SELECT email, name, picture_url, expires_at FROM sessions WHERE token = ?",
+        )
+        .bind(&token)
+        .fetch_optional(&state.db)
+        .await
+        .ok()??;
+        let expires =
+            chrono::NaiveDateTime::parse_from_str(&row.expires_at, "%Y-%m-%d %H:%M:%S").ok()?;
+        (expires >= chrono::Utc::now().naive_utc()).then_some(())
+    })()
+    .await;
 
-    let Ok(Some(row)) = sqlx::query_as::<_, SessionRow>(
-        "SELECT email, name, picture_url, expires_at FROM sessions WHERE token = ?",
-    )
-    .bind(&token)
-    .fetch_optional(&state.db)
-    .await
-    else {
-        return StatusCode::UNAUTHORIZED;
-    };
-
-    let Ok(expires) = chrono::NaiveDateTime::parse_from_str(&row.expires_at, "%Y-%m-%d %H:%M:%S")
-    else {
-        return StatusCode::UNAUTHORIZED;
-    };
-
-    if expires < chrono::Utc::now().naive_utc() {
-        StatusCode::UNAUTHORIZED
+    if authenticated.is_some() {
+        StatusCode::OK.into_response()
     } else {
-        StatusCode::OK
+        // Caddy's forward_auth sets X-Forwarded-Uri to the original request URI
+        let original_uri = headers
+            .get("X-Forwarded-Uri")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("/");
+        Redirect::to(&format!("/login?redirect={}", urlencoding::encode(original_uri)))
+            .into_response()
     }
 }
 

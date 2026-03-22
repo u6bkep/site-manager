@@ -3,55 +3,116 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Site Manager</title>
+    <title>Dashboard - Site Manager</title>
     <link rel="stylesheet" href="/assets/style.css">
     <script src="/assets/app.js"></script>
+    <style>
+        .search-input {
+            padding-left: 2.5rem;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%236b7280" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>');
+            background-repeat: no-repeat;
+            background-position: 0.75rem center;
+        }
+    </style>
 </head>
 <body>
     <nav>
-        <a href="/" class="brand">Site Manager</a>
-        <div class="user-info" id="user-info"></div>
-    </nav>
-    <main>
-        <div class="header-row">
-            <h2>Sites</h2>
-            <a href="/sites/new" class="btn btn-primary">+ New Site</a>
+        <div class="container">
+            <a href="/" class="brand">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                Site Manager
+            </a>
+            <div class="user-info"></div>
         </div>
-        <div id="content" class="loading">Loading...</div>
+    </nav>
+
+    <main class="container" style="padding-top: 2rem;">
+        <div class="flex items-center justify-between mb-6">
+            <h2 style="font-size: 1.5rem;">My Tools</h2>
+            <a href="/sites/new" class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                New Tool
+            </a>
+        </div>
+
+        <div class="mb-6">
+            <input type="text" id="search" class="search-input" placeholder="Search tools..." style="max-width: 320px;">
+        </div>
+
+        <div id="content" class="grid">
+            <div class="spinner" style="margin: 3rem auto;"></div>
+        </div>
     </main>
+
     <script>
+        let allSites = [];
+
         async function loadSites() {
             const container = document.getElementById('content');
             try {
                 const sites = await apiJson('/api/sites');
-                if (sites.length === 0) {
-                    container.className = 'empty-state';
-                    container.innerHTML = `
-                        <h3>No sites yet</h3>
-                        <p>Create your first site to get started.</p>
-                        <a href="/sites/new" class="btn btn-primary">+ New Site</a>
-                    `;
-                    return;
-                }
-                container.className = 'sites-grid';
-                container.innerHTML = sites.map(site => `
-                    <a href="/sites/${site.slug}" class="site-card">
-                        <h3>${esc(site.name)}</h3>
-                        <span class="badge ${site.source_type}">${site.source_type}</span>
-                        <p class="url">/s/${site.slug}/</p>
-                        <p class="meta">Deployed ${timeAgo(site.last_deployed_at)}</p>
-                    </a>
-                `).join('');
+                allSites = sites;
+                renderSites(sites);
             } catch (e) {
-                container.innerHTML = `<p class="empty-state">Failed to load sites.</p>`;
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p class="text-danger">Failed to load tools.</p>
+                        <button onclick="loadSites()" class="btn btn-secondary">Retry</button>
+                    </div>
+                `;
             }
         }
 
-        function esc(str) {
-            const d = document.createElement('div');
-            d.textContent = str;
-            return d.innerHTML;
+        function renderSites(sites) {
+            const container = document.getElementById('content');
+            if (sites.length === 0) {
+                if (document.getElementById('search').value) {
+                    container.innerHTML = `<p class="text-muted" style="grid-column: 1/-1; text-align: center;">No tools found matching your search.</p>`;
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state" style="grid-column: 1/-1;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">🚀</div>
+                            <h3>No tools yet</h3>
+                            <p>Deploy your first AI tool or static site to get started.</p>
+                            <a href="/sites/new" class="btn btn-primary">Create Tool</a>
+                        </div>
+                    `;
+                }
+                return;
+            }
+
+            container.innerHTML = sites.map(site => `
+                <a href="/sites/${site.slug}" class="card card-hover" style="text-decoration: none; color: inherit; display: flex; flex-direction: column; height: 100%;">
+                    <div style="flex: 1;">
+                        <div class="flex justify-between items-start mb-4">
+                            <span class="badge ${site.source_type}">${site.source_type}</span>
+                            <span class="text-muted text-sm">${timeAgo(site.last_deployed_at)}</span>
+                        </div>
+                        <h3 style="color: var(--primary); margin-bottom: 0.25rem;">${escapeHtml(site.name)}</h3>
+                        <div class="text-muted text-sm font-mono" style="margin-bottom: 1rem; overflow: hidden; text-overflow: ellipsis;">/s/${site.slug}</div>
+                    </div>
+                    <div style="padding-top: 1rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end;">
+                         <span class="text-sm text-muted">Manage &rarr;</span>
+                    </div>
+                </a>
+            `).join('');
         }
+
+        // Search Logic
+        document.getElementById('search').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = allSites.filter(s => 
+                s.name.toLowerCase().includes(query) || 
+                s.slug.toLowerCase().includes(query)
+            );
+            renderSites(filtered);
+        });
 
         loadSites();
     </script>

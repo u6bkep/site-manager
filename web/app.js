@@ -22,11 +22,46 @@ async function apiJson(path, options = {}) {
 }
 
 function toast(message, type = 'success') {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
     const el = document.createElement('div');
     el.className = `toast ${type}`;
     el.textContent = message;
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 3000);
+    container.appendChild(el);
+    
+    // Auto remove after 3s
+    setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(100%)';
+        setTimeout(() => el.remove(), 300);
+    }, 3000);
+}
+
+function slugify(text) {
+    return text
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')     // Replace spaces with -
+        .replace(/[^\w\-]+/g, '') // Remove all non-word chars
+        .replace(/\-\-+/g, '-')   // Replace multiple - with single -
+        .replace(/^-+/, '')       // Trim - from start of text
+        .replace(/-+$/, '');      // Trim - from end of text
+}
+
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        toast('Copied to clipboard!');
+    } catch (err) {
+        toast('Failed to copy', 'error');
+    }
 }
 
 function escapeHtml(str) {
@@ -59,7 +94,7 @@ async function loadNav() {
             nav.innerHTML = `
                 ${user.picture_url ? `<img src="${escapeHtml(user.picture_url)}" alt="" class="avatar" referrerpolicy="no-referrer">` : ''}
                 <span>${escapeHtml(user.name || user.email)}</span>
-                <a href="#" class="logout-btn" onclick="logout()">Sign out</a>
+                <a href="#" class="btn btn-sm btn-secondary" onclick="logout()">Sign out</a>
             `;
         }
     } catch (e) {
