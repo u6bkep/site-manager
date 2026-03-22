@@ -59,7 +59,16 @@ async fn main() -> anyhow::Result<()> {
         http_client,
     });
 
+    // Generate initial Caddyfile
+    let caddyfile_content = caddy::generate_caddyfile(&state);
+    let caddyfile_path = format!("{}/Caddyfile", config.caddy_root);
+    tokio::fs::create_dir_all(&config.caddy_root).await?;
+    tokio::fs::write(&caddyfile_path, &caddyfile_content).await?;
+    tracing::info!("wrote initial Caddyfile to {}", caddyfile_path);
+
     let app = Router::new()
+        // Health check
+        .route("/healthz", get(health))
         // Public auth routes
         .route("/login", get(auth::login_page))
         .route("/auth/google", get(auth::google_redirect))
@@ -75,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sites", get(sites::list).post(sites::create))
         .route(
             "/api/sites/{slug}",
-            get(sites::get_site).delete(sites::delete_site),
+            get(sites::get_site).delete(sites::delete_site).put(sites::update_site),
         )
         .route("/api/sites/{slug}/upload", post(sites::upload))
         .route("/api/sites/{slug}/deploy", post(sites::deploy))
@@ -97,6 +106,10 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn health() -> &'static str {
+    "ok"
 }
 
 // Page handlers — serve embedded HTML after auth check

@@ -18,7 +18,6 @@ pub struct Site {
     pub repo_url: Option<String>,
     pub branch: Option<String>,
     pub subdirectory: String,
-    pub custom_domain: Option<String>,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
@@ -39,7 +38,7 @@ pub async fn list(
     State(state): State<Arc<AppState>>,
     _user: AuthUser,
 ) -> Result<Json<Vec<Site>>, AppError> {
-    let sites = sqlx::query_as::<_, Site>("SELECT * FROM sites ORDER BY updated_at DESC")
+    let sites = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites ORDER BY updated_at DESC")
         .fetch_all(&state.db)
         .await?;
     Ok(Json(sites))
@@ -130,7 +129,11 @@ pub async fn create(
         }
     }
 
-    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE id = ?")
+    if let Err(e) = crate::caddy::reload_caddy(&state).await {
+        tracing::warn!("caddy reload failed: {}", e);
+    }
+
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE id = ?")
         .bind(&id)
         .fetch_one(&state.db)
         .await?;
@@ -144,11 +147,78 @@ pub async fn get_site(
     _user: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<Json<Site>, AppError> {
-    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
         .ok_or_else(|| AppError::not_found("Site not found"))?;
+    Ok(Json(site))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateSite {
+    pub name: Option<String>,
+    pub branch: Option<String>,
+    pub subdirectory: Option<String>,
+}
+
+// PUT /api/sites/{slug}
+pub async fn update_site(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+    Path(slug): Path<String>,
+    Json(body): Json<UpdateSite>,
+) -> Result<Json<Site>, AppError> {
+    // Verify site exists
+    let _existing = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+        .bind(&slug)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or_else(|| AppError::not_found("Site not found"))?;
+
+    // Validate subdirectory if provided
+    if let Some(ref subdirectory) = body.subdirectory {
+        if !subdirectory.is_empty() {
+            let subdir_path = std::path::Path::new(subdirectory);
+            for component in subdir_path.components() {
+                if matches!(component, Component::ParentDir) {
+                    return Err(AppError::bad_request(
+                        "Subdirectory must not contain '..' path segments",
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(ref name) = body.name {
+        sqlx::query("UPDATE sites SET name = ?, updated_at = datetime('now') WHERE slug = ?")
+            .bind(name)
+            .bind(&slug)
+            .execute(&state.db)
+            .await?;
+    }
+
+    if let Some(ref branch) = body.branch {
+        sqlx::query("UPDATE sites SET branch = ?, updated_at = datetime('now') WHERE slug = ?")
+            .bind(branch)
+            .bind(&slug)
+            .execute(&state.db)
+            .await?;
+    }
+
+    if let Some(ref subdirectory) = body.subdirectory {
+        sqlx::query("UPDATE sites SET subdirectory = ?, updated_at = datetime('now') WHERE slug = ?")
+            .bind(subdirectory)
+            .bind(&slug)
+            .execute(&state.db)
+            .await?;
+    }
+
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+        .bind(&slug)
+        .fetch_one(&state.db)
+        .await?;
+
     Ok(Json(site))
 }
 
@@ -177,6 +247,10 @@ pub async fn delete_site(
         let _ = tokio::fs::remove_dir_all(&repo_dir).await;
     }
 
+    if let Err(e) = crate::caddy::reload_caddy(&state).await {
+        tracing::warn!("caddy reload failed: {}", e);
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -188,7 +262,7 @@ pub async fn upload(
     mut multipart: Multipart,
 ) -> Result<Json<Site>, AppError> {
     // Verify site exists and is upload type
-    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
@@ -298,7 +372,11 @@ pub async fn upload(
         .execute(&state.db)
         .await?;
 
-    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE slug = ?")
+    if let Err(e) = crate::caddy::reload_caddy(&state).await {
+        tracing::warn!("caddy reload failed: {}", e);
+    }
+
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_one(&state.db)
         .await?;
@@ -312,7 +390,7 @@ pub async fn deploy(
     user: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<Json<Site>, AppError> {
-    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
@@ -341,7 +419,11 @@ pub async fn deploy(
     )
     .await?;
 
-    let site = sqlx::query_as::<_, Site>("SELECT * FROM sites WHERE slug = ?")
+    if let Err(e) = crate::caddy::reload_caddy(&state).await {
+        tracing::warn!("caddy reload failed: {}", e);
+    }
+
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_one(&state.db)
         .await?;
