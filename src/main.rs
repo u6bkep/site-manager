@@ -4,6 +4,7 @@ mod config;
 mod db;
 mod error;
 mod github;
+mod github_token;
 mod sites;
 
 use std::sync::Arc;
@@ -26,6 +27,7 @@ pub struct AppState {
     pub db: sqlx::SqlitePool,
     pub config: config::Config,
     pub http_client: reqwest::Client,
+    pub github_token_provider: Option<std::sync::Arc<github_token::GitHubTokenProvider>>,
 }
 
 #[tokio::main]
@@ -53,10 +55,13 @@ async fn main() -> anyhow::Result<()> {
 
     let http_client = reqwest::Client::new();
 
+    let github_token_provider = github_token::GitHubTokenProvider::new(&config, &http_client);
+
     let state = Arc::new(AppState {
         db,
         config: config.clone(),
         http_client,
+        github_token_provider,
     });
 
     // Generate initial Caddyfile
@@ -93,6 +98,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/github/repos/{owner}/{repo}/branches",
             get(github::list_branches),
+        )
+        .route(
+            "/api/github/repos/{owner}/{repo}/commits/{branch}",
+            get(github::latest_commit),
         )
         .route("/api/github/webhook", post(github::webhook))
         // Site preview (dev mode — serves sites directly with auth)
@@ -151,24 +160,40 @@ async fn serve_site(
     jar: CookieJar,
     Path(path): Path<String>,
 ) -> Response {
-    // Check auth via session cookie
-    let authenticated = if let Some(token) = jar.get("session").map(|c| c.value().to_string()) {
-        sqlx::query_scalar::<_, String>(
-            "SELECT email FROM sessions WHERE token = ? AND expires_at > datetime('now')",
-        )
-        .bind(&token)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
-    } else {
-        false
-    };
+    // Parse slug from the path first so we can check if the site is public
+    let slug = path.split_once('/').map(|(s, _)| s).unwrap_or(&path);
 
-    if !authenticated {
-        let redirect = format!("/login?redirect=/s/{}", urlencoding::encode(&path));
-        return axum::response::Redirect::to(&redirect).into_response();
+    // Check if site is public
+    let is_public = sqlx::query_scalar::<_, bool>(
+        "SELECT public FROM sites WHERE slug = ?",
+    )
+    .bind(slug)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false);
+
+    if !is_public {
+        // Check auth via session cookie
+        let authenticated = if let Some(token) = jar.get("session").map(|c| c.value().to_string()) {
+            sqlx::query_scalar::<_, String>(
+                "SELECT email FROM sessions WHERE token = ? AND expires_at > datetime('now')",
+            )
+            .bind(&token)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+        } else {
+            false
+        };
+
+        if !authenticated {
+            let redirect = format!("/login?redirect=/s/{}", urlencoding::encode(&path));
+            return axum::response::Redirect::to(&redirect).into_response();
+        }
     }
 
     // Parse path: slug/file_path

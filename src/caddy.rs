@@ -9,12 +9,21 @@ pub fn generate_caddyfile(state: &AppState) -> String {
         .unwrap_or("8080");
     let app_upstream = format!("localhost:{}", app_port);
 
-    let primary_domain = state
+    let bare_domain = state
         .config
         .external_url
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_end_matches('/');
+
+    // When CADDY_TLS=on, use the bare domain so Caddy manages TLS via ACME.
+    // Otherwise, prefix with http:// to disable auto-HTTPS (for use behind
+    // a reverse proxy that terminates TLS).
+    let primary_domain = if state.config.caddy_tls {
+        bare_domain.to_string()
+    } else {
+        format!("http://{bare_domain}")
+    };
 
     format!(
         r#"{{

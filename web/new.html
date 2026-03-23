@@ -18,8 +18,10 @@
             cursor: pointer;
             border: 2px solid var(--border);
             text-align: center;
-            padding: 2rem;
+            padding: 2.5rem 1.5rem;
             transition: all 0.2s ease;
+            background: var(--bg-surface);
+            border-radius: var(--radius-md);
         }
         
         .source-card:hover {
@@ -41,6 +43,9 @@
             color: var(--text-muted);
             margin-top: 0.5rem;
             font-size: 0.875rem;
+            padding: 0.5rem;
+            background: var(--bg-body);
+            border-radius: var(--radius-sm);
         }
 
         .step-title {
@@ -63,14 +68,15 @@
                 </svg>
                 Site Manager
             </a>
-            <div class="user-info"></div>
+            <div class="nav-actions"></div>
         </div>
     </nav>
 
-    <main class="container" style="padding-top: 2rem; max-width: 720px;">
+    <main class="container" style="padding-top: 3rem; max-width: 800px;">
         <div class="mb-6">
-            <h2>Create New Tool</h2>
-            <p class="text-muted">Deploy a new static site or AI-generated tool.</p>
+            <a href="/" class="text-sm text-muted mb-2 inline-block">&larr; Back to Dashboard</a>
+            <h2 style="font-size: 2rem;">Create New Tool</h2>
+            <p class="text-muted">Set up a new static site or browser-based tool.</p>
         </div>
 
         <form id="create-form">
@@ -78,7 +84,7 @@
                 <div class="step-title">Step 1: Name Your Tool</div>
                 <div class="form-group">
                     <label for="name">Tool Name</label>
-                    <input type="text" id="name" required placeholder="e.g. Sales Dashboard" autocomplete="off" style="font-size: 1.25rem; padding: 0.75rem;">
+                    <input type="text" id="name" required placeholder="e.g. Data Analytics Dashboard" autocomplete="off" style="font-size: 1.25rem; padding: 0.875rem;">
                     <div class="slug-preview">
                         URL: /s/<span id="slug-text">...</span>/
                     </div>
@@ -89,10 +95,12 @@
                 <div class="step-title">Step 2: Choose Source</div>
                 <div class="source-grid">
                     <div class="source-card active" data-source="upload" onclick="setSource('upload')">
-                        <h3>📁 Upload Folder</h3>
+                        <div style="font-size: 2.5rem; margin-bottom: 1rem;">📁</div>
+                        <h3>Upload Folder</h3>
                         <p>Drag & drop a .zip file</p>
                     </div>
                     <div class="source-card" data-source="git" onclick="setSource('git')">
+                        <div style="font-size: 2.5rem; margin-bottom: 1rem;">🐙</div>
                         <h3>GitHub Repo</h3>
                         <p>Connect to a repository</p>
                     </div>
@@ -101,21 +109,21 @@
                 <!-- Upload Section -->
                 <div id="upload-section">
                     <div class="dropzone" id="dropzone">
-                        <div style="font-size: 2rem; margin-bottom: 1rem;">📦</div>
-                        <h4 class="mb-4">Drop your .zip file here</h4>
+                        <div style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;">📦</div>
+                        <h4 class="mb-2">Drop your .zip file here</h4>
                         <p class="text-muted text-sm">Or click to browse files</p>
                         <input type="file" id="file-input" accept=".zip" hidden>
                     </div>
-                    <p id="file-name" class="text-muted text-sm" style="text-align: center; margin-top: 1rem; display: none;"></p>
+                    <p id="file-name" class="text-muted text-sm" style="text-align: center; margin-top: 1rem; display: none; font-family: monospace;"></p>
                 </div>
 
                 <!-- Git Section -->
                 <div id="git-section" style="display: none;">
                     <div class="form-group">
                         <label for="repo-input">Repository</label>
-                        <input type="text" id="repo-input" placeholder="owner/repo (e.g. google/gemini)" list="repo-list">
+                        <input type="text" id="repo-input" placeholder="owner/repo (e.g. facebook/react)" list="repo-list">
                         <datalist id="repo-list"></datalist>
-                        <p class="hint">Type to search your repositories</p>
+                        <p class="hint">Search your GitHub repositories</p>
                     </div>
                     
                     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -125,16 +133,21 @@
                             <datalist id="branch-list"></datalist>
                         </div>
                         <div class="form-group">
-                            <label for="subdirectory">Build Output Folder</label>
-                            <input type="text" id="subdirectory" placeholder="e.g. dist, build, public">
+                            <label for="subdirectory">Subdirectory (Optional)</label>
+                            <input type="text" id="subdirectory" placeholder="e.g. dist, public">
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div style="text-align: right;">
-                <a href="/" class="btn btn-secondary" style="margin-right: 0.5rem;">Cancel</a>
-                <button type="submit" class="btn btn-primary" id="submit-btn" style="min-width: 120px;">Create Tool</button>
+            <div class="flex justify-between items-center">
+                <p class="text-xs text-muted" style="max-width: 300px;">
+                    Your tool will be private and only accessible via your company login.
+                </p>
+                <div class="flex gap-2">
+                    <a href="/" class="btn btn-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary" id="submit-btn" style="min-width: 140px;">Create Tool</button>
+                </div>
             </div>
         </form>
     </main>
@@ -189,17 +202,18 @@
             }
             selectedFile = file;
             dropzone.classList.add('has-file');
-            dropzone.querySelector('h4').textContent = 'File Selected';
-            fileNameDisplay.textContent = file.name;
+            dropzone.querySelector('h4').textContent = 'File Ready';
+            fileNameDisplay.textContent = `Selected: ${file.name}`;
             fileNameDisplay.style.display = 'block';
         }
 
-        // GitHub Logic (reused)
+        // GitHub Logic
+        let reposData = [];
         async function loadRepos() {
             try {
-                const repos = await apiJson('/api/github/repos');
+                reposData = await apiJson('/api/github/repos');
                 const list = document.getElementById('repo-list');
-                repos.forEach(r => {
+                reposData.forEach(r => {
                     const opt = document.createElement('option');
                     opt.value = r.full_name;
                     list.appendChild(opt);
@@ -217,12 +231,19 @@
 
         async function loadBranches() {
             const branchList = document.getElementById('branch-list');
+            const branchInput = document.getElementById('branch');
             const repoValue = repoInput.value.trim();
-            // Basic parsing logic...
             const parts = repoValue.split('/');
             if (parts.length !== 2) return;
-            
+
             branchList.innerHTML = '';
+
+            // Auto-fill with default branch from repo data
+            const repoMatch = reposData.find(r => r.full_name === repoValue);
+            if (repoMatch && !branchInput.value.trim()) {
+                branchInput.value = repoMatch.default_branch;
+            }
+
             try {
                 const branches = await apiJson(`/api/github/repos/${parts[0]}/${parts[1]}/branches`);
                 branches.forEach(b => {

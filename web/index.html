@@ -6,14 +6,6 @@
     <title>Dashboard - Site Manager</title>
     <link rel="stylesheet" href="/assets/style.css">
     <script src="/assets/app.js"></script>
-    <style>
-        .search-input {
-            padding-left: 2.5rem;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%236b7280" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>');
-            background-repeat: no-repeat;
-            background-position: 0.75rem center;
-        }
-    </style>
 </head>
 <body>
     <nav>
@@ -25,7 +17,7 @@
                 </svg>
                 Site Manager
             </a>
-            <div class="user-info"></div>
+            <div class="nav-actions"></div>
         </div>
     </nav>
 
@@ -42,11 +34,19 @@
         </div>
 
         <div class="mb-6">
-            <input type="text" id="search" class="search-input" placeholder="Search tools..." style="max-width: 320px;">
+            <div class="search-container">
+                <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="search" class="search-input" placeholder="Search tools...">
+            </div>
         </div>
 
         <div id="content" class="grid">
-            <div class="spinner" style="margin: 3rem auto;"></div>
+            <div style="grid-column: 1/-1; text-align: center; padding: 4rem;">
+                 <div class="spinner" style="margin: 0 auto;"></div>
+            </div>
         </div>
     </main>
 
@@ -61,7 +61,7 @@
                 renderSites(sites);
             } catch (e) {
                 container.innerHTML = `
-                    <div class="empty-state">
+                    <div class="empty-state" style="grid-column: 1/-1;">
                         <p class="text-danger">Failed to load tools.</p>
                         <button onclick="loadSites()" class="btn btn-secondary">Retry</button>
                     </div>
@@ -73,14 +73,16 @@
             const container = document.getElementById('content');
             if (sites.length === 0) {
                 if (document.getElementById('search').value) {
-                    container.innerHTML = `<p class="text-muted" style="grid-column: 1/-1; text-align: center;">No tools found matching your search.</p>`;
+                    container.innerHTML = `<p class="text-muted" style="grid-column: 1/-1; text-align: center; padding: 4rem;">No tools found matching your search.</p>`;
                 } else {
                     container.innerHTML = `
                         <div class="empty-state" style="grid-column: 1/-1;">
-                            <div style="font-size: 3rem; margin-bottom: 1rem;">🚀</div>
-                            <h3>No tools yet</h3>
-                            <p>Deploy your first AI tool or static site to get started.</p>
-                            <a href="/sites/new" class="btn btn-primary">Create Tool</a>
+                            <div style="font-size: 4rem; margin-bottom: 1.5rem;">🚀</div>
+                            <h3>Welcome to Site Manager</h3>
+                            <p>You haven't deployed any tools yet. Upload a .zip or connect a Git repository to get started.</p>
+                            <div style="margin-top: 1.5rem;">
+                                <a href="/sites/new" class="btn btn-primary">Create Your First Tool</a>
+                            </div>
                         </div>
                     `;
                 }
@@ -92,13 +94,14 @@
                     <div style="flex: 1;">
                         <div class="flex justify-between items-start mb-4">
                             <span class="badge ${site.source_type}">${site.source_type}</span>
-                            <span class="text-muted text-sm">${timeAgo(site.last_deployed_at)}</span>
+                            <span class="text-muted text-xs">${timeAgo(site.last_deployed_at)}</span>
                         </div>
-                        <h3 style="color: var(--primary); margin-bottom: 0.25rem;">${escapeHtml(site.name)}</h3>
-                        <div class="text-muted text-sm font-mono" style="margin-bottom: 1rem; overflow: hidden; text-overflow: ellipsis;">/s/${site.slug}</div>
+                        <h3 style="margin-bottom: 0.25rem;">${escapeHtml(site.name)}</h3>
+                        <div class="text-muted text-xs font-mono" style="margin-bottom: 1rem; overflow: hidden; text-overflow: ellipsis; opacity: 0.7;">/s/${site.slug}</div>
                     </div>
-                    <div style="padding-top: 1rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end;">
-                         <span class="text-sm text-muted">Manage &rarr;</span>
+                    <div style="padding-top: 1rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                         <span class="text-xs text-muted">Author: ${escapeHtml(site.created_by.split('@')[0])}</span>
+                         <span class="text-xs" style="color: var(--primary)">Manage &rarr;</span>
                     </div>
                 </a>
             `).join('');

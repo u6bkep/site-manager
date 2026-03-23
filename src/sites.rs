@@ -18,10 +18,13 @@ pub struct Site {
     pub repo_url: Option<String>,
     pub branch: Option<String>,
     pub subdirectory: String,
+    pub public: bool,
     pub created_by: String,
     pub created_at: String,
     pub updated_at: String,
     pub last_deployed_at: Option<String>,
+    pub last_commit_sha: Option<String>,
+    pub last_commit_message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -31,6 +34,7 @@ pub struct CreateSite {
     pub repo_url: Option<String>,
     pub branch: Option<String>,
     pub subdirectory: Option<String>,
+    pub public: Option<bool>,
 }
 
 // GET /api/sites
@@ -38,7 +42,7 @@ pub async fn list(
     State(state): State<Arc<AppState>>,
     _user: AuthUser,
 ) -> Result<Json<Vec<Site>>, AppError> {
-    let sites = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites ORDER BY updated_at DESC")
+    let sites = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites ORDER BY updated_at DESC")
         .fetch_all(&state.db)
         .await?;
     Ok(Json(sites))
@@ -91,9 +95,11 @@ pub async fn create(
         }
     }
 
+    let public = body.public.unwrap_or(false);
+
     sqlx::query(
-        "INSERT INTO sites (id, slug, name, source_type, repo_url, branch, subdirectory, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO sites (id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&slug)
@@ -102,6 +108,7 @@ pub async fn create(
     .bind(&body.repo_url)
     .bind(&body.branch)
     .bind(&subdirectory)
+    .bind(public)
     .bind(&user.email)
     .execute(&state.db)
     .await?;
@@ -133,7 +140,7 @@ pub async fn create(
         tracing::warn!("caddy reload failed: {}", e);
     }
 
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE id = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE id = ?")
         .bind(&id)
         .fetch_one(&state.db)
         .await?;
@@ -147,7 +154,7 @@ pub async fn get_site(
     _user: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<Json<Site>, AppError> {
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
@@ -160,6 +167,7 @@ pub struct UpdateSite {
     pub name: Option<String>,
     pub branch: Option<String>,
     pub subdirectory: Option<String>,
+    pub public: Option<bool>,
 }
 
 // PUT /api/sites/{slug}
@@ -170,7 +178,7 @@ pub async fn update_site(
     Json(body): Json<UpdateSite>,
 ) -> Result<Json<Site>, AppError> {
     // Verify site exists
-    let _existing = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    let _existing = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
@@ -214,7 +222,15 @@ pub async fn update_site(
             .await?;
     }
 
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    if let Some(public) = body.public {
+        sqlx::query("UPDATE sites SET public = ?, updated_at = datetime('now') WHERE slug = ?")
+            .bind(public)
+            .bind(&slug)
+            .execute(&state.db)
+            .await?;
+    }
+
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_one(&state.db)
         .await?;
@@ -262,7 +278,7 @@ pub async fn upload(
     mut multipart: Multipart,
 ) -> Result<Json<Site>, AppError> {
     // Verify site exists and is upload type
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
@@ -376,7 +392,7 @@ pub async fn upload(
         tracing::warn!("caddy reload failed: {}", e);
     }
 
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_one(&state.db)
         .await?;
@@ -390,7 +406,7 @@ pub async fn deploy(
     user: AuthUser,
     Path(slug): Path<String>,
 ) -> Result<Json<Site>, AppError> {
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_optional(&state.db)
         .await?
@@ -423,7 +439,7 @@ pub async fn deploy(
         tracing::warn!("caddy reload failed: {}", e);
     }
 
-    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, created_by, created_at, updated_at, last_deployed_at FROM sites WHERE slug = ?")
+    let site = sqlx::query_as::<_, Site>("SELECT id, slug, name, source_type, repo_url, branch, subdirectory, public, created_by, created_at, updated_at, last_deployed_at, last_commit_sha, last_commit_message FROM sites WHERE slug = ?")
         .bind(&slug)
         .fetch_one(&state.db)
         .await?;
@@ -460,37 +476,19 @@ pub async fn deploy_from_git(
     let repo_dir_clone = repo_dir.clone();
     let site_dir_clone = site_dir.clone();
     let github_token = if is_github {
-        state.config.github_token.clone()
+        if let Some(ref provider) = state.github_token_provider {
+            Some(provider.get_token().await.map_err(|e| {
+                AppError::bad_request(format!("GitHub auth failed: {}", e))
+            })?)
+        } else {
+            None
+        }
     } else {
         None
     };
 
-    let commit_sha = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
-        // Clone or pull
-        let repo = if repo_dir_clone.join(".git").exists() {
-            let repo = git2::Repository::open(&repo_dir_clone)?;
-            // Fetch and checkout
-            let mut remote = repo.find_remote("origin")?;
-            let mut fetch_opts = git2::FetchOptions::new();
-            if let Some(ref token) = github_token {
-                let mut callbacks = git2::RemoteCallbacks::new();
-                let token = token.clone();
-                callbacks.credentials(move |_url, _username, _allowed| {
-                    git2::Cred::userpass_plaintext("x-access-token", &token)
-                });
-                fetch_opts.remote_callbacks(callbacks);
-            }
-            fetch_opts.depth(1);
-            remote.fetch(&[&branch], Some(&mut fetch_opts), None)?;
-            drop(remote);
-
-            {
-                let fetch_head = repo.find_reference("FETCH_HEAD")?;
-                let commit = fetch_head.peel_to_commit()?;
-                repo.reset(commit.as_object(), git2::ResetType::Hard, None)?;
-            }
-            repo
-        } else {
+    let (commit_sha, commit_message) = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String)> {
+        let clone_fresh = |dir: &std::path::Path| -> anyhow::Result<git2::Repository> {
             let mut builder = git2::build::RepoBuilder::new();
             let mut fetch_opts = git2::FetchOptions::new();
             if let Some(ref token) = github_token {
@@ -504,14 +502,71 @@ pub async fn deploy_from_git(
             fetch_opts.depth(1);
             builder.fetch_options(fetch_opts);
             builder.branch(&branch);
-            builder.clone(&repo_url, &repo_dir_clone)?
+            Ok(builder.clone(&repo_url, dir)?)
+        };
+
+        // Clone or pull
+        let repo = if repo_dir_clone.join(".git").exists() {
+            // Try fetch-and-reset on existing repo; fall back to fresh clone
+            // if it fails (e.g. branch switch on a shallow clone)
+            let fetch_result: anyhow::Result<git2::Repository> = (|| {
+                let repo = git2::Repository::open(&repo_dir_clone)?;
+
+                // Check if we already track this branch
+                let remote_ref = format!("refs/remotes/origin/{}", branch);
+                let has_branch = repo.find_reference(&remote_ref).is_ok();
+
+                let mut remote = repo.find_remote("origin")?;
+                let mut fetch_opts = git2::FetchOptions::new();
+                if let Some(ref token) = github_token {
+                    let mut callbacks = git2::RemoteCallbacks::new();
+                    let token = token.clone();
+                    callbacks.credentials(move |_url, _username, _allowed| {
+                        git2::Cred::userpass_plaintext("x-access-token", &token)
+                    });
+                    fetch_opts.remote_callbacks(callbacks);
+                }
+
+                if has_branch {
+                    // Branch already tracked — shallow fetch update
+                    fetch_opts.depth(1);
+                    remote.fetch(&[&branch], Some(&mut fetch_opts), None)?;
+                } else {
+                    // New branch — explicit refspec to create tracking ref
+                    remote.fetch(
+                        &[&format!("+refs/heads/{}:{}", branch, remote_ref)],
+                        Some(&mut fetch_opts),
+                        None,
+                    )?;
+                }
+                drop(remote);
+
+                {
+                    // Prefer remote tracking ref, fall back to FETCH_HEAD
+                    let reference = repo.find_reference(&remote_ref)
+                        .or_else(|_| repo.find_reference("FETCH_HEAD"))?;
+                    let commit = reference.peel_to_commit()?;
+                    repo.reset(commit.as_object(), git2::ResetType::Hard, None)?;
+                }
+                Ok(repo)
+            })();
+
+            match fetch_result {
+                Ok(repo) => repo,
+                Err(e) => {
+                    tracing::warn!("fetch failed, re-cloning: {}", e);
+                    std::fs::remove_dir_all(&repo_dir_clone)?;
+                    clone_fresh(&repo_dir_clone)?
+                }
+            }
+        } else {
+            clone_fresh(&repo_dir_clone)?
         };
 
         let head = repo.head()?;
-        let sha = head
-            .peel_to_commit()?
-            .id()
-            .to_string();
+        let commit = head.peel_to_commit()?;
+        let sha = commit.id().to_string();
+        let message = commit.summary().unwrap_or("").to_string();
 
         // Copy files from repo (optionally from subdirectory) to site dir
         let source = if subdir.is_empty() {
@@ -526,7 +581,7 @@ pub async fn deploy_from_git(
         }
         copy_dir_recursive(&source, &site_dir_clone)?;
 
-        Ok(sha)
+        Ok((sha, message))
     })
     .await
     .map_err(|e| AppError::bad_request(format!("Git operation failed: {}", e)))?
@@ -552,8 +607,10 @@ pub async fn deploy_from_git(
     }
 
     sqlx::query(
-        "UPDATE sites SET last_deployed_at = datetime('now'), updated_at = datetime('now') WHERE slug = ?",
+        "UPDATE sites SET last_deployed_at = datetime('now'), updated_at = datetime('now'), last_commit_sha = ?, last_commit_message = ? WHERE slug = ?",
     )
+    .bind(&commit_sha)
+    .bind(&commit_message)
     .bind(slug)
     .execute(&state.db)
     .await?;

@@ -330,16 +330,38 @@ pub async fn verify(
     .await;
 
     if authenticated.is_some() {
-        StatusCode::OK.into_response()
-    } else {
-        // Caddy's forward_auth sets X-Forwarded-Uri to the original request URI
-        let original_uri = headers
-            .get("X-Forwarded-Uri")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("/");
-        Redirect::to(&format!("/login?redirect={}", urlencoding::encode(original_uri)))
-            .into_response()
+        return StatusCode::OK.into_response();
     }
+
+    // Check if the requested site is public (Caddy sets X-Forwarded-Uri)
+    let original_uri = headers
+        .get("X-Forwarded-Uri")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("/");
+
+    // Extract slug from /s/{slug}/... path
+    if let Some(slug) = original_uri
+        .strip_prefix("/s/")
+        .and_then(|rest| rest.split('/').next())
+        .filter(|s| !s.is_empty())
+    {
+        let is_public = sqlx::query_scalar::<_, bool>(
+            "SELECT public FROM sites WHERE slug = ?",
+        )
+        .bind(slug)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+
+        if is_public {
+            return StatusCode::OK.into_response();
+        }
+    }
+
+    Redirect::to(&format!("/login?redirect={}", urlencoding::encode(original_uri)))
+        .into_response()
 }
 
 // POST /auth/logout

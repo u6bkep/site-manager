@@ -14,10 +14,14 @@ pub struct Config {
     pub external_url: String,
 
     pub github_token: Option<String>,
+    pub github_app_id: Option<u64>,
+    pub github_app_private_key: Option<String>,
+    pub github_app_installation_id: Option<u64>,
     pub github_webhook_secret: Option<String>,
 
     pub caddy_bin: String,
     pub caddy_root: String,
+    pub caddy_tls: bool,
 }
 
 fn require_env(name: &str) -> Result<String> {
@@ -63,10 +67,18 @@ impl Config {
             external_url,
 
             github_token: optional_env("GITHUB_TOKEN"),
+            github_app_id: optional_env("GITHUB_APP_ID")
+                .and_then(|v| v.parse().ok()),
+            github_app_private_key: optional_env("GITHUB_APP_PRIVATE_KEY"),
+            github_app_installation_id: optional_env("GITHUB_APP_INSTALLATION_ID")
+                .and_then(|v| v.parse().ok()),
             github_webhook_secret: optional_env("GITHUB_WEBHOOK_SECRET"),
 
             caddy_bin: optional_env("CADDY_BIN")
                 .unwrap_or_else(|| "caddy".into()),
+            caddy_tls: optional_env("CADDY_TLS")
+                .map(|v| v.eq_ignore_ascii_case("on") || v == "true" || v == "1")
+                .unwrap_or(false),
             caddy_root,
         };
 
@@ -116,8 +128,21 @@ impl Config {
             );
         }
 
+        // GitHub App config: all three must be set together
+        let app_fields = [
+            self.github_app_id.is_some(),
+            self.github_app_private_key.is_some(),
+            self.github_app_installation_id.is_some(),
+        ];
+        if app_fields.iter().any(|&v| v) && !app_fields.iter().all(|&v| v) {
+            bail!(
+                "GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, and GITHUB_APP_INSTALLATION_ID must all be set together"
+            );
+        }
+
         // Warn about GitHub webhook without secret
-        if self.github_token.is_some() && self.github_webhook_secret.is_none() {
+        let has_github = self.github_token.is_some() || self.github_app_id.is_some();
+        if has_github && self.github_webhook_secret.is_none() {
             tracing::warn!(
                 "GITHUB_TOKEN is set but GITHUB_WEBHOOK_SECRET is not — \
                  webhook auto-deploy will reject all requests until a secret is configured"

@@ -5,7 +5,7 @@ async function api(path, options = {}) {
         headers: { 'Content-Type': 'application/json', ...options.headers },
         ...options,
     });
-    if (resp.status === 401) {
+    if (resp.status === 401 && window.location.pathname !== '/login') {
         window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
         throw new Error('Not authenticated');
     }
@@ -86,16 +86,46 @@ function timeAgo(dateStr) {
     return date.toLocaleDateString();
 }
 
+// Theme Logic
+function initTheme() {
+    const saved = localStorage.getItem('theme') || 'auto';
+    setTheme(saved);
+}
+
+function setTheme(theme) {
+    localStorage.setItem('theme', theme);
+    const root = document.documentElement;
+    if (theme === 'auto') {
+        root.removeAttribute('data-theme');
+    } else {
+        root.setAttribute('data-theme', theme);
+    }
+    
+    // Update UI if it exists
+    document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.theme === theme);
+    });
+}
+
 async function loadNav() {
     try {
         const user = await apiJson('/api/me');
-        const nav = document.querySelector('nav .user-info');
+        const nav = document.querySelector('nav .nav-actions');
         if (nav) {
             nav.innerHTML = `
-                ${user.picture_url ? `<img src="${escapeHtml(user.picture_url)}" alt="" class="avatar" referrerpolicy="no-referrer">` : ''}
-                <span>${escapeHtml(user.name || user.email)}</span>
-                <a href="#" class="btn btn-sm btn-secondary" onclick="logout()">Sign out</a>
+                <div class="theme-selector">
+                    <button class="theme-btn" data-theme="auto" onclick="setTheme('auto')" title="System Setting">Auto</button>
+                    <button class="theme-btn" data-theme="light" onclick="setTheme('light')" title="Light Mode">Light</button>
+                    <button class="theme-btn" data-theme="dark" onclick="setTheme('dark')" title="Dark Mode">Dark</button>
+                </div>
+                <div class="user-info">
+                    ${user.picture_url ? `<img src="${escapeHtml(user.picture_url)}" alt="" class="avatar" referrerpolicy="no-referrer">` : ''}
+                    <span>${escapeHtml(user.name || user.email)}</span>
+                    <a href="#" class="btn btn-sm btn-secondary" onclick="logout()">Sign out</a>
+                </div>
             `;
+            // Refresh active theme btn
+            setTheme(localStorage.getItem('theme') || 'auto');
         }
     } catch (e) {
         // ignore
@@ -106,6 +136,9 @@ async function logout() {
     await fetch('/auth/logout', { method: 'POST' });
     window.location.href = '/login';
 }
+
+// Initialize theme immediately to prevent flash
+initTheme();
 
 // Load nav on every page
 document.addEventListener('DOMContentLoaded', loadNav);

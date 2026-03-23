@@ -49,43 +49,85 @@ pub async fn list_repos(
     State(state): State<Arc<AppState>>,
     _user: AuthUser,
 ) -> Result<Json<Vec<Repo>>, AppError> {
-    let token = state
-        .config
-        .github_token
-        .as_ref()
+    let provider = state.github_token_provider.as_ref()
         .ok_or_else(|| AppError::bad_request("GitHub not configured"))?;
+    let token = provider.get_token().await
+        .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?;
+
+    let is_app = state.config.github_app_id.is_some();
 
     let mut all_repos = Vec::new();
     let mut page = 1u32;
 
     loop {
-        let url = format!(
-            "https://api.github.com/user/repos?per_page=100&sort=updated&page={}",
-            page
-        );
-        let repos: Vec<GithubRepo> = state
-            .http_client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .header("User-Agent", "site-manager")
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await?
-            .json()
-            .await?;
+        // GitHub App tokens use /installation/repositories; PATs use /user/repos
+        let url = if is_app {
+            format!(
+                "https://api.github.com/installation/repositories?per_page=100&page={}",
+                page
+            )
+        } else {
+            format!(
+                "https://api.github.com/user/repos?per_page=100&sort=updated&page={}",
+                page
+            )
+        };
 
-        let batch_len = repos.len();
-        all_repos.extend(repos.into_iter().map(|r| Repo {
-            full_name: r.full_name,
-            name: r.name,
-            owner: r.owner.login,
-            private: r.private,
-            default_branch: r.default_branch,
-        }));
+        if is_app {
+            #[derive(Deserialize)]
+            struct InstallationReposResponse {
+                repositories: Vec<GithubRepo>,
+            }
 
-        if batch_len < 100 {
-            break;
+            let resp: InstallationReposResponse = state
+                .http_client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("User-Agent", "site-manager")
+                .header("Accept", "application/vnd.github+json")
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            let batch_len = resp.repositories.len();
+            all_repos.extend(resp.repositories.into_iter().map(|r| Repo {
+                full_name: r.full_name,
+                name: r.name,
+                owner: r.owner.login,
+                private: r.private,
+                default_branch: r.default_branch,
+            }));
+
+            if batch_len < 100 {
+                break;
+            }
+        } else {
+            let repos: Vec<GithubRepo> = state
+                .http_client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("User-Agent", "site-manager")
+                .header("Accept", "application/vnd.github+json")
+                .send()
+                .await?
+                .json()
+                .await?;
+
+            let batch_len = repos.len();
+            all_repos.extend(repos.into_iter().map(|r| Repo {
+                full_name: r.full_name,
+                name: r.name,
+                owner: r.owner.login,
+                private: r.private,
+                default_branch: r.default_branch,
+            }));
+
+            if batch_len < 100 {
+                break;
+            }
         }
+
         page += 1;
     }
 
@@ -98,11 +140,10 @@ pub async fn list_branches(
     _user: AuthUser,
     Path((owner, repo)): Path<(String, String)>,
 ) -> Result<Json<Vec<Branch>>, AppError> {
-    let token = state
-        .config
-        .github_token
-        .as_ref()
+    let provider = state.github_token_provider.as_ref()
         .ok_or_else(|| AppError::bad_request("GitHub not configured"))?;
+    let token = provider.get_token().await
+        .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?;
 
     let url = format!(
         "https://api.github.com/repos/{}/{}/branches?per_page=100",
@@ -122,6 +163,55 @@ pub async fn list_branches(
     Ok(Json(
         branches.into_iter().map(|b| Branch { name: b.name }).collect(),
     ))
+}
+
+#[derive(Serialize)]
+pub struct CommitInfo {
+    pub sha: String,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+struct GithubCommit {
+    sha: String,
+    commit: GithubCommitDetail,
+}
+
+#[derive(Deserialize)]
+struct GithubCommitDetail {
+    message: String,
+}
+
+// GET /api/github/repos/{owner}/{repo}/commits/{branch}
+pub async fn latest_commit(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+    Path((owner, repo, branch)): Path<(String, String, String)>,
+) -> Result<Json<CommitInfo>, AppError> {
+    let provider = state.github_token_provider.as_ref()
+        .ok_or_else(|| AppError::bad_request("GitHub not configured"))?;
+    let token = provider.get_token().await
+        .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?;
+
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/commits/{}",
+        owner, repo, branch
+    );
+    let commit: GithubCommit = state
+        .http_client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("User-Agent", "site-manager")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    Ok(Json(CommitInfo {
+        sha: commit.sha,
+        message: commit.commit.message.lines().next().unwrap_or("").to_string(),
+    }))
 }
 
 // POST /api/github/webhook

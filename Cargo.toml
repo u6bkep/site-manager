@@ -27,4 +27,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+jsonwebtoken = "9"
 zip = "2"

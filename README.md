@@ -54,8 +54,12 @@ All configuration is via environment variables.
 | `SITES_DIR` | no | `{DATA_DIR}/sites` | Where deployed site files are stored |
 | `REPOS_DIR` | no | `{DATA_DIR}/repos` | Where git clones are kept |
 | `DB_PATH` | no | `{DATA_DIR}/site-manager.db` | SQLite database path |
-| `GITHUB_TOKEN` | no | | GitHub PAT for private repo access and API calls |
+| `GITHUB_TOKEN` | no | | GitHub PAT for private repo access (simple setup) |
+| `GITHUB_APP_ID` | no | | GitHub App ID (org-level auth, recommended) |
+| `GITHUB_APP_PRIVATE_KEY` | no | | GitHub App PEM private key |
+| `GITHUB_APP_INSTALLATION_ID` | no | | GitHub App installation ID |
 | `GITHUB_WEBHOOK_SECRET` | no | | Secret for verifying GitHub webhook signatures |
+| `CADDY_TLS` | no | `off` | `on` for Caddy to manage TLS via ACME; `off` when behind a TLS-terminating reverse proxy |
 | `CADDY_BIN` | no | `caddy` | Path to Caddy binary (for production reloads) |
 | `CADDY_ROOT` | no | `/etc/caddy` | Caddy configuration directory |
 | `RUST_LOG` | no | `info` | Log level (`debug`, `info`, `warn`, `error`) |
@@ -72,11 +76,33 @@ All configuration is via environment variables.
 
 ## GitHub Integration
 
-For deploying from private repos and auto-deploying on push:
+Two authentication methods are supported. GitHub App (Option B) is recommended for organizations.
+
+### Option A: Personal Access Token
 
 1. Create a [Personal Access Token](https://github.com/settings/tokens) with `repo` scope (classic) or fine-grained with repository read access.
 2. Set `GITHUB_TOKEN` in your environment.
-3. To enable auto-deploy, set `GITHUB_WEBHOOK_SECRET` to a random string, then configure a webhook on each repo:
+
+### Option B: GitHub App (recommended)
+
+1. Go to your org's Settings → Developer settings → GitHub Apps → **New GitHub App**.
+2. Set a name (e.g. "Site Manager"), homepage URL to your `EXTERNAL_URL`.
+3. Uncheck **Webhook → Active** (the app handles webhooks separately).
+4. Permissions: **Repository → Contents → Read-only**.
+5. Where can this app be installed? → **Only on this account**.
+6. Create the app. Note the **App ID** from the app's settings page.
+7. Generate a **private key** (downloads a `.pem` file).
+8. Install the app on your org (Settings → Developer settings → GitHub Apps → Install). Note the **Installation ID** from the URL (`/installations/<id>`).
+9. Set environment variables:
+   ```sh
+   GITHUB_APP_ID=123456
+   GITHUB_APP_PRIVATE_KEY="$(cat path/to/private-key.pem)"
+   GITHUB_APP_INSTALLATION_ID=12345678
+   ```
+
+### Webhooks (auto-deploy on push)
+
+For either option, to enable auto-deploy set `GITHUB_WEBHOOK_SECRET` to a random string, then configure a webhook on each repo (or at the org level):
    - Payload URL: `{EXTERNAL_URL}/api/github/webhook`
    - Content type: `application/json`
    - Secret: same value as `GITHUB_WEBHOOK_SECRET`
