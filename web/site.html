@@ -143,7 +143,7 @@
                             <h2 style="font-size: 1.5rem; margin-bottom: 0.5rem;">${escapeHtml(site.name)}</h2>
                             <p class="text-muted text-sm mb-4">Manage this tool's deployment and settings.</p>
                             <button class="btn btn-secondary btn-sm" style="width: 100%;" onclick="copyToClipboard('${fullUrl}')">
-                                🔗 Copy Public Link
+                                🔗 Copy Link
                             </button>
                         </div>
 
@@ -233,7 +233,7 @@
                                         <span class="toggle-slider"></span>
                                         <span class="toggle-label" id="public-label">${site.public ? 'Public' : 'Private'}</span>
                                     </label>
-                                    <span class="text-xs text-muted" style="margin-top: 0.25rem;">${site.public ? 'Anyone with the link can access.' : 'Only authenticated users can access.'}</span>
+                                    <span class="text-xs text-muted" id="public-description" style="margin-top: 0.25rem;">${site.public ? 'Anyone with the link can access.' : 'Only authenticated users can access.'}</span>
                                 </div>
                             </div>
                         </div>
@@ -396,12 +396,18 @@
         }
 
         async function togglePublic(isPublic) {
+            if (isPublic && !confirm('Make this site public? Anyone with the link will be able to access it without logging in.')) {
+                document.getElementById('public-toggle').checked = false;
+                return;
+            }
             try {
                 await apiJson(`/api/sites/${slug}`, {
                     method: 'PUT',
                     body: JSON.stringify({ public: isPublic }),
                 });
                 document.getElementById('public-label').textContent = isPublic ? 'Public' : 'Private';
+                const desc = document.getElementById('public-description');
+                if (desc) desc.textContent = isPublic ? 'Anyone with the link can access.' : 'Only authenticated users can access.';
                 toast(isPublic ? 'Site is now public' : 'Site is now private');
                 setTimeout(() => window.location.reload(), 800);
             } catch (e) {
