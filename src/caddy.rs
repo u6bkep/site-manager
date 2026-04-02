@@ -47,7 +47,7 @@ pub fn generate_caddyfile(state: &AppState) -> String {
         reverse_proxy {app_upstream}
     }}
 
-    handle /s/* {{
+    route /s/* {{
         forward_auth {app_upstream} {{
             uri /auth/verify
         }}
