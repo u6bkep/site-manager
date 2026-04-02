@@ -5,3 +5,4 @@
 /data
 .env
 client_secret_*.json
+static-web-site-manager.*.private-key.pem
