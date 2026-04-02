@@ -56,6 +56,49 @@
             font-weight: 700;
             letter-spacing: 0.05em;
         }
+
+        .git-status {
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .git-status.visible { display: flex; }
+        .git-status.info { background: var(--primary-light); color: var(--primary); }
+        .git-status.success { background: var(--success-bg); color: var(--success); }
+        .git-status.error { background: var(--danger-bg); color: var(--danger); }
+        .git-status .status-message {
+            flex: 1;
+            display: flex;
+            align-items: center;
+        }
+        .git-status .status-dismiss {
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: 0 0.25rem;
+            opacity: 0.7;
+            line-height: 1;
+        }
+        .git-status .status-dismiss:hover { opacity: 1; }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid currentColor;
+            border-right-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 0.5rem;
+            flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -121,11 +164,11 @@
                 <div id="git-section" style="display: none;">
                     <div class="form-group">
                         <label for="repo-input">Repository</label>
-                        <input type="text" id="repo-input" placeholder="owner/repo (e.g. facebook/react)" list="repo-list">
+                        <input type="text" id="repo-input" placeholder="owner/repo or paste a GitHub URL" list="repo-list" autocomplete="off">
                         <datalist id="repo-list"></datalist>
-                        <p class="hint">Search your GitHub repositories</p>
+                        <p class="hint">Accepts owner/repo, https://github.com/owner/repo, or git clone URLs</p>
                     </div>
-                    
+
                     <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
                         <div class="form-group">
                             <label for="branch">Branch</label>
@@ -136,6 +179,11 @@
                             <label for="subdirectory">Subdirectory (Optional)</label>
                             <input type="text" id="subdirectory" placeholder="e.g. dist, public">
                         </div>
+                    </div>
+
+                    <div id="git-status" class="git-status">
+                        <span class="status-message"></span>
+                        <button type="button" class="status-dismiss" onclick="hideGitStatus()" style="display:none">&times;</button>
                     </div>
                 </div>
             </div>
@@ -155,36 +203,77 @@
     <script>
         let sourceType = 'upload';
         let selectedFile = null;
+        let reposData = [];
+        let currentRepoKey = null;
 
-        // Auto-slugify
+        // --- Repo URL parsing ---
+
+        function parseRepoInput(value) {
+            value = value.trim();
+            let m;
+            // git@github.com:owner/repo.git
+            m = value.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+            if (m) return { owner: m[1], repo: m[2] };
+            // https://github.com/owner/repo[.git][/...]
+            m = value.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/);
+            if (m) return { owner: m[1], repo: m[2] };
+            // owner/repo (letters, digits, hyphens, dots, underscores)
+            m = value.match(/^([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)$/);
+            if (m) return { owner: m[1], repo: m[2] };
+            return null;
+        }
+
+        // --- Status panel ---
+
+        function showGitStatus(message, type = 'info') {
+            const panel = document.getElementById('git-status');
+            const msgEl = panel.querySelector('.status-message');
+            panel.className = `git-status visible ${type}`;
+            if (type === 'info') {
+                msgEl.innerHTML = '<span class="spinner"></span>' + escapeHtml(message);
+            } else {
+                msgEl.textContent = message;
+            }
+            panel.querySelector('.status-dismiss').style.display =
+                type === 'error' ? 'block' : 'none';
+        }
+
+        function hideGitStatus() {
+            document.getElementById('git-status').className = 'git-status';
+        }
+
+        // --- Auto-slugify ---
+
         const nameInput = document.getElementById('name');
         const slugText = document.getElementById('slug-text');
-        
         nameInput.addEventListener('input', () => {
-            const val = nameInput.value;
-            const slug = slugify(val);
-            slugText.textContent = slug || '...';
+            slugText.textContent = slugify(nameInput.value) || '...';
         });
 
-        // Source Toggle
+        // --- Source Toggle ---
+
         function setSource(type) {
             sourceType = type;
             document.querySelectorAll('.source-card').forEach(el => {
-                if (el.dataset.source === type) el.classList.add('active');
-                else el.classList.remove('active');
+                el.classList.toggle('active', el.dataset.source === type);
             });
-            
-            document.getElementById('upload-section').style.display = type === 'upload' ? 'block' : 'none';
-            document.getElementById('git-section').style.display = type === 'git' ? 'block' : 'none';
+            document.getElementById('upload-section').style.display =
+                type === 'upload' ? 'block' : 'none';
+            document.getElementById('git-section').style.display =
+                type === 'git' ? 'block' : 'none';
         }
 
-        // Drag & Drop
+        // --- Drag & Drop ---
+
         const dropzone = document.getElementById('dropzone');
         const fileInput = document.getElementById('file-input');
         const fileNameDisplay = document.getElementById('file-name');
 
         dropzone.addEventListener('click', () => fileInput.click());
-        dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+        dropzone.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropzone.classList.add('dragover');
+        });
         dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
         dropzone.addEventListener('drop', e => {
             e.preventDefault();
@@ -207,8 +296,8 @@
             fileNameDisplay.style.display = 'block';
         }
 
-        // GitHub Logic
-        let reposData = [];
+        // --- GitHub repos ---
+
         async function loadRepos() {
             try {
                 reposData = await apiJson('/api/github/repos');
@@ -218,43 +307,105 @@
                     opt.value = r.full_name;
                     list.appendChild(opt);
                 });
-            } catch (e) { /* ignore */ }
+            } catch (e) { /* GitHub not configured */ }
         }
         loadRepos();
 
+        // --- Repo input handling ---
+
         const repoInput = document.getElementById('repo-input');
+        const branchInput = document.getElementById('branch');
         let branchTimeout = null;
-        repoInput.addEventListener('input', () => {
-            clearTimeout(branchTimeout);
-            branchTimeout = setTimeout(loadBranches, 500);
+
+        // Normalize pasted URLs to owner/repo immediately
+        repoInput.addEventListener('paste', () => {
+            setTimeout(() => {
+                const value = repoInput.value.trim();
+                const parsed = parseRepoInput(value);
+                if (parsed && (value.includes('github.com') || value.startsWith('git@'))) {
+                    repoInput.value = `${parsed.owner}/${parsed.repo}`;
+                }
+                clearTimeout(branchTimeout);
+                onRepoChanged();
+            }, 0);
         });
 
-        async function loadBranches() {
-            const branchList = document.getElementById('branch-list');
-            const branchInput = document.getElementById('branch');
-            const repoValue = repoInput.value.trim();
-            const parts = repoValue.split('/');
-            if (parts.length !== 2) return;
+        repoInput.addEventListener('input', () => {
+            clearTimeout(branchTimeout);
+            branchTimeout = setTimeout(onRepoChanged, 500);
+        });
 
-            branchList.innerHTML = '';
+        async function onRepoChanged() {
+            const parsed = parseRepoInput(repoInput.value);
+            if (!parsed) {
+                currentRepoKey = null;
+                // Don't hide status if there's an error showing — user might be editing
+                const panel = document.getElementById('git-status');
+                if (!panel.classList.contains('error')) hideGitStatus();
+                return;
+            }
 
-            // Auto-fill with default branch from repo data
-            const repoMatch = reposData.find(r => r.full_name === repoValue);
+            const repoKey = `${parsed.owner}/${parsed.repo}`;
+            if (repoKey === currentRepoKey) return;
+            currentRepoKey = repoKey;
+
+            // Auto-fill default branch from known repos
+            const repoMatch = reposData.find(r => r.full_name === repoKey);
             if (repoMatch && !branchInput.value.trim()) {
                 branchInput.value = repoMatch.default_branch;
             }
 
+            // Fetch branches
+            showGitStatus('Loading branches\u2026', 'info');
+            const branchList = document.getElementById('branch-list');
+            branchList.innerHTML = '';
+
             try {
-                const branches = await apiJson(`/api/github/repos/${parts[0]}/${parts[1]}/branches`);
+                const branches = await apiJson(
+                    `/api/github/repos/${parsed.owner}/${parsed.repo}/branches`
+                );
+
+                // Stale response guard
+                if (currentRepoKey !== repoKey) return;
+
                 branches.forEach(b => {
                     const opt = document.createElement('option');
                     opt.value = b.name;
                     branchList.appendChild(opt);
                 });
-            } catch (e) { /* ignore */ }
+
+                // If branch still empty, pick a sensible default
+                if (!branchInput.value.trim() && branches.length > 0) {
+                    const pick = branches.find(b => b.name === 'main')
+                        || branches.find(b => b.name === 'master')
+                        || branches[0];
+                    if (pick) branchInput.value = pick.name;
+                }
+
+                const n = branches.length;
+                const current = branchInput.value.trim();
+                if (current) {
+                    showGitStatus(
+                        `Repository found \u2014 ${n} branch${n !== 1 ? 'es' : ''}, using \u201c${current}\u201d`,
+                        'success'
+                    );
+                } else {
+                    showGitStatus(
+                        `Repository found \u2014 ${n} branch${n !== 1 ? 'es' : ''} available`,
+                        'success'
+                    );
+                }
+            } catch (e) {
+                if (currentRepoKey !== repoKey) return;
+                showGitStatus(
+                    `Could not load branches for \u201c${repoKey}\u201d \u2014 ${e.message}`,
+                    'error'
+                );
+            }
         }
 
-        // Submit
+        // --- Submit ---
+
         document.getElementById('create-form').addEventListener('submit', async e => {
             e.preventDefault();
             const name = nameInput.value.trim();
@@ -262,20 +413,43 @@
 
             const btn = document.getElementById('submit-btn');
             btn.disabled = true;
-            btn.textContent = 'Creating...';
+            btn.textContent = 'Creating\u2026';
 
             try {
-                if (sourceType === 'upload' && !selectedFile) {
-                    throw new Error('Please select a .zip file to upload');
-                }
+                if (sourceType === 'upload') {
+                    if (!selectedFile) throw new Error('Please select a .zip file to upload');
 
-                if (sourceType === 'git') {
-                    let repoUrl = repoInput.value.trim();
-                    if (repoUrl && !repoUrl.startsWith('http')) {
-                        repoUrl = `https://github.com/${repoUrl}`;
+                    const site = await apiJson('/api/sites', {
+                        method: 'POST',
+                        body: JSON.stringify({ name, source_type: 'upload' }),
+                    });
+
+                    const formData = new FormData();
+                    formData.append('file', selectedFile);
+                    const uploadResp = await fetch(`/api/sites/${site.slug}/upload`, {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    if (!uploadResp.ok) {
+                        const err = await uploadResp.json().catch(() => ({ error: 'Upload failed' }));
+                        throw new Error(err.error || 'Upload failed');
                     }
-                    const branch = document.getElementById('branch').value.trim();
+
+                    window.location.href = '/';
+                } else {
+                    const parsed = parseRepoInput(repoInput.value);
+                    if (!parsed) {
+                        throw new Error(
+                            'Please enter a valid repository (e.g. owner/repo or a GitHub URL)'
+                        );
+                    }
+
+                    const branch = branchInput.value.trim();
                     if (!branch) throw new Error('Please enter a branch name');
+
+                    const repoUrl = `https://github.com/${parsed.owner}/${parsed.repo}`;
+
+                    showGitStatus('Creating site and cloning repository\u2026', 'info');
 
                     await apiJson('/api/sites', {
                         method: 'POST',
@@ -284,26 +458,19 @@
                             source_type: 'git',
                             repo_url: repoUrl,
                             branch,
-                            subdirectory: document.getElementById('subdirectory').value.trim() || null,
+                            subdirectory:
+                                document.getElementById('subdirectory').value.trim() || null,
                         }),
                     });
-                } else {
-                    const site = await apiJson('/api/sites', {
-                        method: 'POST',
-                        body: JSON.stringify({ name, source_type: 'upload' }),
-                    });
 
-                    const formData = new FormData();
-                    formData.append('file', selectedFile);
-                    await fetch(`/api/sites/${site.slug}/upload`, {
-                        method: 'POST',
-                        body: formData,
-                    });
+                    window.location.href = '/';
                 }
-
-                window.location.href = '/';
             } catch (err) {
-                toast(err.message, 'error');
+                if (sourceType === 'git') {
+                    showGitStatus(err.message, 'error');
+                } else {
+                    toast(err.message, 'error');
+                }
                 btn.disabled = false;
                 btn.textContent = 'Create Tool';
             }
