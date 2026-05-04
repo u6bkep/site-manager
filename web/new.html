@@ -139,8 +139,8 @@
                 <div class="source-grid">
                     <div class="source-card active" data-source="upload" onclick="setSource('upload')">
                         <div style="font-size: 2.5rem; margin-bottom: 1rem;">📁</div>
-                        <h3>Upload Folder</h3>
-                        <p>Drag & drop a .zip file</p>
+                        <h3>Upload File</h3>
+                        <p>Drag & drop a .zip or .html file</p>
                     </div>
                     <div class="source-card" data-source="git" onclick="setSource('git')">
                         <div style="font-size: 2.5rem; margin-bottom: 1rem;">🐙</div>
@@ -153,9 +153,9 @@
                 <div id="upload-section">
                     <div class="dropzone" id="dropzone">
                         <div style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;">📦</div>
-                        <h4 class="mb-2">Drop your .zip file here</h4>
+                        <h4 class="mb-2">Drop a .zip or .html file here</h4>
                         <p class="text-muted text-sm">Or click to browse files</p>
-                        <input type="file" id="file-input" accept=".zip" hidden>
+                        <input type="file" id="file-input" accept=".zip,.html,.htm" hidden>
                     </div>
                     <p id="file-name" class="text-muted text-sm" style="text-align: center; margin-top: 1rem; display: none; font-family: monospace;"></p>
                 </div>
@@ -285,8 +285,9 @@
         });
 
         function handleFile(file) {
-            if (!file.name.endsWith('.zip')) {
-                toast('Please upload a .zip file', 'error');
+            const name = file.name.toLowerCase();
+            if (!name.endsWith('.zip') && !name.endsWith('.html') && !name.endsWith('.htm')) {
+                toast('Please upload a .zip or .html file', 'error');
                 return;
             }
             selectedFile = file;
@@ -417,7 +418,7 @@
 
             try {
                 if (sourceType === 'upload') {
-                    if (!selectedFile) throw new Error('Please select a .zip file to upload');
+                    if (!selectedFile) throw new Error('Please select a .zip or .html file to upload');
 
                     const site = await apiJson('/api/sites', {
                         method: 'POST',

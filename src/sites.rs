@@ -1,9 +1,12 @@
-use std::{path::{Component, PathBuf}, sync::Arc};
+use std::{
+    path::{Component, PathBuf},
+    sync::Arc,
+};
 
 use axum::{
+    Json,
     extract::{Multipart, Path, State},
     http::StatusCode,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 
@@ -121,16 +124,20 @@ pub async fn create(
     if body.source_type == "git" {
         if let Some(ref repo_url) = body.repo_url {
             let branch = body.branch.clone().unwrap_or_else(|| "main".into());
-            if let Err(e) = deploy_from_git(&state, &slug, repo_url, &branch, &subdirectory, &user.email)
-                .await
+            if let Err(e) =
+                deploy_from_git(&state, &slug, repo_url, &branch, &subdirectory, &user.email).await
             {
                 // Clean up the site record and directories on failed initial deploy
                 let _ = sqlx::query("DELETE FROM sites WHERE id = ?")
                     .bind(&id)
                     .execute(&state.db)
                     .await;
-                let _ = tokio::fs::remove_dir_all(PathBuf::from(&state.config.sites_dir).join(&slug)).await;
-                let _ = tokio::fs::remove_dir_all(PathBuf::from(&state.config.repos_dir).join(&slug)).await;
+                let _ =
+                    tokio::fs::remove_dir_all(PathBuf::from(&state.config.sites_dir).join(&slug))
+                        .await;
+                let _ =
+                    tokio::fs::remove_dir_all(PathBuf::from(&state.config.repos_dir).join(&slug))
+                        .await;
                 return Err(e);
             }
         }
@@ -215,11 +222,13 @@ pub async fn update_site(
     }
 
     if let Some(ref subdirectory) = body.subdirectory {
-        sqlx::query("UPDATE sites SET subdirectory = ?, updated_at = datetime('now') WHERE slug = ?")
-            .bind(subdirectory)
-            .bind(&slug)
-            .execute(&state.db)
-            .await?;
+        sqlx::query(
+            "UPDATE sites SET subdirectory = ?, updated_at = datetime('now') WHERE slug = ?",
+        )
+        .bind(subdirectory)
+        .bind(&slug)
+        .execute(&state.db)
+        .await?;
     }
 
     if let Some(public) = body.public {
@@ -292,15 +301,26 @@ pub async fn upload(
 
     // Read the uploaded file
     let mut file_data = None;
+    let mut file_name = None;
     while let Some(field) = multipart.next_field().await? {
         if field.name() == Some("file") {
+            file_name = field.file_name().map(|s| s.to_string());
             file_data = Some(field.bytes().await?);
             break;
         }
     }
     let file_data = file_data.ok_or_else(|| AppError::bad_request("No file uploaded"))?;
 
-    // Extract zip to site directory
+    let lower_name = file_name.as_deref().unwrap_or("").to_ascii_lowercase();
+    let is_html = lower_name.ends_with(".html") || lower_name.ends_with(".htm");
+    let is_zip = lower_name.ends_with(".zip");
+    if !is_html && !is_zip {
+        return Err(AppError::bad_request(
+            "Upload must be a .zip archive or a .html file",
+        ));
+    }
+
+    // Write to site directory
     let site_dir = PathBuf::from(&state.config.sites_dir).join(&slug);
 
     // Clear existing content
@@ -309,75 +329,83 @@ pub async fn upload(
     }
     tokio::fs::create_dir_all(&site_dir).await?;
 
-    // Extract zip with hardening
-    let site_dir_clone = site_dir.clone();
-    let data = file_data.to_vec();
-    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-        const MAX_EXTRACT_SIZE: u64 = 500 * 1024 * 1024; // 500MB
+    if is_html {
+        const MAX_HTML_SIZE: usize = 50 * 1024 * 1024; // 50MB
+        if file_data.len() > MAX_HTML_SIZE {
+            return Err(AppError::bad_request(
+                "HTML file exceeds maximum size of 50MB",
+            ));
+        }
+        tokio::fs::write(site_dir.join("index.html"), &file_data).await?;
+    } else {
+        // Extract zip with hardening
+        let site_dir_clone = site_dir.clone();
+        let data = file_data.to_vec();
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            const MAX_EXTRACT_SIZE: u64 = 500 * 1024 * 1024; // 500MB
 
-        let cursor = std::io::Cursor::new(data);
-        let mut archive = zip::ZipArchive::new(cursor)?;
-        let canonical_target = std::fs::canonicalize(&site_dir_clone)?;
-        let mut cumulative_size: u64 = 0;
+            let cursor = std::io::Cursor::new(data);
+            let mut archive = zip::ZipArchive::new(cursor)?;
+            let canonical_target = std::fs::canonicalize(&site_dir_clone)?;
+            let mut cumulative_size: u64 = 0;
 
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i)?;
-            let Some(entry_path) = entry.enclosed_name() else {
-                anyhow::bail!("Zip entry has invalid path");
-            };
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i)?;
+                let Some(entry_path) = entry.enclosed_name() else {
+                    anyhow::bail!("Zip entry has invalid path");
+                };
 
-            // Check for .. components
-            for component in entry_path.components() {
-                if matches!(component, Component::ParentDir) {
-                    anyhow::bail!(
-                        "Zip entry contains '..' path component: {}",
-                        entry_path.display()
-                    );
-                }
-            }
-
-            let out_path = site_dir_clone.join(&entry_path);
-
-            // Verify the resolved path stays within the target directory
-            // For directories, create them and check; for files, check the parent
-            if entry.is_dir() {
-                std::fs::create_dir_all(&out_path)?;
-                let canonical = std::fs::canonicalize(&out_path)?;
-                if !canonical.starts_with(&canonical_target) {
-                    anyhow::bail!(
-                        "Zip entry escapes target directory: {}",
-                        entry_path.display()
-                    );
-                }
-            } else {
-                if let Some(parent) = out_path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                    let canonical_parent = std::fs::canonicalize(parent)?;
-                    if !canonical_parent.starts_with(&canonical_target) {
+                // Check for .. components
+                for component in entry_path.components() {
+                    if matches!(component, Component::ParentDir) {
                         anyhow::bail!(
-                            "Zip entry escapes target directory: {}",
+                            "Zip entry contains '..' path component: {}",
                             entry_path.display()
                         );
                     }
                 }
 
-                // Track cumulative size
-                cumulative_size += entry.size();
-                if cumulative_size > MAX_EXTRACT_SIZE {
-                    anyhow::bail!(
-                        "Zip archive exceeds maximum extraction size of 500MB"
-                    );
-                }
+                let out_path = site_dir_clone.join(&entry_path);
 
-                let mut outfile = std::fs::File::create(&out_path)?;
-                std::io::copy(&mut entry, &mut outfile)?;
+                // Verify the resolved path stays within the target directory
+                // For directories, create them and check; for files, check the parent
+                if entry.is_dir() {
+                    std::fs::create_dir_all(&out_path)?;
+                    let canonical = std::fs::canonicalize(&out_path)?;
+                    if !canonical.starts_with(&canonical_target) {
+                        anyhow::bail!(
+                            "Zip entry escapes target directory: {}",
+                            entry_path.display()
+                        );
+                    }
+                } else {
+                    if let Some(parent) = out_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                        let canonical_parent = std::fs::canonicalize(parent)?;
+                        if !canonical_parent.starts_with(&canonical_target) {
+                            anyhow::bail!(
+                                "Zip entry escapes target directory: {}",
+                                entry_path.display()
+                            );
+                        }
+                    }
+
+                    // Track cumulative size
+                    cumulative_size += entry.size();
+                    if cumulative_size > MAX_EXTRACT_SIZE {
+                        anyhow::bail!("Zip archive exceeds maximum extraction size of 500MB");
+                    }
+
+                    let mut outfile = std::fs::File::create(&out_path)?;
+                    std::io::copy(&mut entry, &mut outfile)?;
+                }
             }
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| AppError::bad_request(format!("Zip extraction failed: {}", e)))?
-    .map_err(|e| AppError::bad_request(format!("Zip extraction failed: {}", e)))?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| AppError::bad_request(format!("Zip extraction failed: {}", e)))?
+        .map_err(|e| AppError::bad_request(format!("Zip extraction failed: {}", e)))?;
+    }
 
     // Record deployment
     record_deployment(&state.db, &site.id, &user.email, None, "success", None).await?;
@@ -420,10 +448,7 @@ pub async fn deploy(
         .repo_url
         .as_ref()
         .ok_or_else(|| AppError::bad_request("No repo URL configured"))?;
-    let branch = site
-        .branch
-        .as_deref()
-        .unwrap_or("main");
+    let branch = site.branch.as_deref().unwrap_or("main");
 
     deploy_from_git(
         &state,
@@ -477,9 +502,12 @@ pub async fn deploy_from_git(
     let site_dir_clone = site_dir.clone();
     let github_token = if is_github {
         if let Some(ref provider) = state.github_token_provider {
-            Some(provider.get_token().await.map_err(|e| {
-                AppError::bad_request(format!("GitHub auth failed: {}", e))
-            })?)
+            Some(
+                provider
+                    .get_token()
+                    .await
+                    .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?,
+            )
         } else {
             None
         }
@@ -487,36 +515,10 @@ pub async fn deploy_from_git(
         None
     };
 
-    let (commit_sha, commit_message) = tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String)> {
-        let clone_fresh = |dir: &std::path::Path| -> anyhow::Result<git2::Repository> {
-            let mut builder = git2::build::RepoBuilder::new();
-            let mut fetch_opts = git2::FetchOptions::new();
-            if let Some(ref token) = github_token {
-                let mut callbacks = git2::RemoteCallbacks::new();
-                let token = token.clone();
-                callbacks.credentials(move |_url, _username, _allowed| {
-                    git2::Cred::userpass_plaintext("x-access-token", &token)
-                });
-                fetch_opts.remote_callbacks(callbacks);
-            }
-            fetch_opts.depth(1);
-            builder.fetch_options(fetch_opts);
-            builder.branch(&branch);
-            Ok(builder.clone(&repo_url, dir)?)
-        };
-
-        // Clone or pull
-        let repo = if repo_dir_clone.join(".git").exists() {
-            // Try fetch-and-reset on existing repo; fall back to fresh clone
-            // if it fails (e.g. branch switch on a shallow clone)
-            let fetch_result: anyhow::Result<git2::Repository> = (|| {
-                let repo = git2::Repository::open(&repo_dir_clone)?;
-
-                // Check if we already track this branch
-                let remote_ref = format!("refs/remotes/origin/{}", branch);
-                let has_branch = repo.find_reference(&remote_ref).is_ok();
-
-                let mut remote = repo.find_remote("origin")?;
+    let (commit_sha, commit_message) =
+        tokio::task::spawn_blocking(move || -> anyhow::Result<(String, String)> {
+            let clone_fresh = |dir: &std::path::Path| -> anyhow::Result<git2::Repository> {
+                let mut builder = git2::build::RepoBuilder::new();
                 let mut fetch_opts = git2::FetchOptions::new();
                 if let Some(ref token) = github_token {
                     let mut callbacks = git2::RemoteCallbacks::new();
@@ -526,73 +528,100 @@ pub async fn deploy_from_git(
                     });
                     fetch_opts.remote_callbacks(callbacks);
                 }
+                fetch_opts.depth(1);
+                builder.fetch_options(fetch_opts);
+                builder.branch(&branch);
+                Ok(builder.clone(&repo_url, dir)?)
+            };
 
-                if has_branch {
-                    // Branch already tracked — shallow fetch update
-                    fetch_opts.depth(1);
-                    remote.fetch(&[&branch], Some(&mut fetch_opts), None)?;
-                } else {
-                    // New branch — explicit refspec to create tracking ref
-                    remote.fetch(
-                        &[&format!("+refs/heads/{}:{}", branch, remote_ref)],
-                        Some(&mut fetch_opts),
-                        None,
-                    )?;
-                }
-                drop(remote);
+            // Clone or pull
+            let repo = if repo_dir_clone.join(".git").exists() {
+                // Try fetch-and-reset on existing repo; fall back to fresh clone
+                // if it fails (e.g. branch switch on a shallow clone)
+                let fetch_result: anyhow::Result<git2::Repository> = (|| {
+                    let repo = git2::Repository::open(&repo_dir_clone)?;
 
-                {
-                    // Prefer remote tracking ref, fall back to FETCH_HEAD
-                    let reference = repo.find_reference(&remote_ref)
-                        .or_else(|_| repo.find_reference("FETCH_HEAD"))?;
-                    let commit = reference.peel_to_commit()?;
-                    repo.reset(commit.as_object(), git2::ResetType::Hard, None)?;
-                }
-                Ok(repo)
-            })();
+                    // Check if we already track this branch
+                    let remote_ref = format!("refs/remotes/origin/{}", branch);
+                    let has_branch = repo.find_reference(&remote_ref).is_ok();
 
-            match fetch_result {
-                Ok(repo) => repo,
-                Err(e) => {
-                    tracing::warn!("fetch failed, re-cloning: {}", e);
-                    std::fs::remove_dir_all(&repo_dir_clone)?;
-                    clone_fresh(&repo_dir_clone)?
+                    let mut remote = repo.find_remote("origin")?;
+                    let mut fetch_opts = git2::FetchOptions::new();
+                    if let Some(ref token) = github_token {
+                        let mut callbacks = git2::RemoteCallbacks::new();
+                        let token = token.clone();
+                        callbacks.credentials(move |_url, _username, _allowed| {
+                            git2::Cred::userpass_plaintext("x-access-token", &token)
+                        });
+                        fetch_opts.remote_callbacks(callbacks);
+                    }
+
+                    if has_branch {
+                        // Branch already tracked — shallow fetch update
+                        fetch_opts.depth(1);
+                        remote.fetch(&[&branch], Some(&mut fetch_opts), None)?;
+                    } else {
+                        // New branch — explicit refspec to create tracking ref
+                        remote.fetch(
+                            &[&format!("+refs/heads/{}:{}", branch, remote_ref)],
+                            Some(&mut fetch_opts),
+                            None,
+                        )?;
+                    }
+                    drop(remote);
+
+                    {
+                        // Prefer remote tracking ref, fall back to FETCH_HEAD
+                        let reference = repo
+                            .find_reference(&remote_ref)
+                            .or_else(|_| repo.find_reference("FETCH_HEAD"))?;
+                        let commit = reference.peel_to_commit()?;
+                        repo.reset(commit.as_object(), git2::ResetType::Hard, None)?;
+                    }
+                    Ok(repo)
+                })();
+
+                match fetch_result {
+                    Ok(repo) => repo,
+                    Err(e) => {
+                        tracing::warn!("fetch failed, re-cloning: {}", e);
+                        std::fs::remove_dir_all(&repo_dir_clone)?;
+                        clone_fresh(&repo_dir_clone)?
+                    }
                 }
+            } else {
+                clone_fresh(&repo_dir_clone)?
+            };
+
+            let head = repo.head()?;
+            let commit = head.peel_to_commit()?;
+            let sha = commit.id().to_string();
+            let message = commit.summary().unwrap_or("").to_string();
+
+            // Copy files from repo (optionally from subdirectory) to site dir
+            let source = if subdir.is_empty() {
+                repo_dir_clone.clone()
+            } else {
+                repo_dir_clone.join(&subdir)
+            };
+
+            // Clear site dir and copy
+            if site_dir_clone.exists() {
+                std::fs::remove_dir_all(&site_dir_clone)?;
             }
-        } else {
-            clone_fresh(&repo_dir_clone)?
-        };
+            copy_dir_recursive(&source, &site_dir_clone)?;
 
-        let head = repo.head()?;
-        let commit = head.peel_to_commit()?;
-        let sha = commit.id().to_string();
-        let message = commit.summary().unwrap_or("").to_string();
-
-        // Copy files from repo (optionally from subdirectory) to site dir
-        let source = if subdir.is_empty() {
-            repo_dir_clone.clone()
-        } else {
-            repo_dir_clone.join(&subdir)
-        };
-
-        // Clear site dir and copy
-        if site_dir_clone.exists() {
-            std::fs::remove_dir_all(&site_dir_clone)?;
-        }
-        copy_dir_recursive(&source, &site_dir_clone)?;
-
-        Ok((sha, message))
-    })
-    .await
-    .map_err(|e| AppError::bad_request(format!("Git operation failed: {}", e)))?
-    .map_err(|e| AppError::bad_request(format!("Git operation failed: {}", e)))?;
+            Ok((sha, message))
+        })
+        .await
+        .map_err(|e| AppError::bad_request(format!("Git operation failed: {}", e)))?
+        .map_err(|e| AppError::bad_request(format!("Git operation failed: {}", e)))?;
 
     // Get site ID for deployment record
-    let site_id: Option<String> =
-        sqlx::query_scalar("SELECT id FROM sites WHERE slug = ?")
-            .bind(slug)
-            .fetch_optional(&state.db)
-            .await?;
+    let site_id: Option<String> = sqlx::query_scalar("SELECT id FROM sites WHERE slug = ?")
+        .bind(slug)
+        .fetch_optional(&state.db)
+        .await?;
 
     if let Some(site_id) = site_id {
         record_deployment(
@@ -673,7 +702,13 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 fn slugify(name: &str) -> String {
     name.to_lowercase()
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .split('-')
         .filter(|s| !s.is_empty())
