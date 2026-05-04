@@ -25,8 +25,7 @@ pub struct Config {
 }
 
 fn require_env(name: &str) -> Result<String> {
-    let val = std::env::var(name)
-        .with_context(|| format!("{} is required but not set", name))?;
+    let val = std::env::var(name).with_context(|| format!("{} is required but not set", name))?;
     if val.trim().is_empty() {
         bail!("{} is set but empty", name);
     }
@@ -39,24 +38,19 @@ fn optional_env(name: &str) -> Option<String> {
 
 impl Config {
     pub fn from_env() -> Result<Self> {
-        let data_dir = optional_env("DATA_DIR")
-            .unwrap_or_else(|| "/var/lib/site-manager".into());
-        let caddy_root = optional_env("CADDY_ROOT")
-            .unwrap_or_else(|| "/etc/caddy".into());
+        let data_dir = optional_env("DATA_DIR").unwrap_or_else(|| "/var/lib/site-manager".into());
+        let caddy_root = optional_env("CADDY_ROOT").unwrap_or_else(|| "/etc/caddy".into());
 
-        let external_url = optional_env("EXTERNAL_URL")
-            .unwrap_or_else(|| "http://localhost:8080".into());
+        let external_url =
+            optional_env("EXTERNAL_URL").unwrap_or_else(|| "http://localhost:8080".into());
         let google_client_id = require_env("GOOGLE_CLIENT_ID")?;
         let allowed_domain = require_env("ALLOWED_DOMAIN")?;
-        let bind_addr = optional_env("BIND_ADDR")
-            .unwrap_or_else(|| "0.0.0.0:8080".into());
+        let bind_addr = optional_env("BIND_ADDR").unwrap_or_else(|| "0.0.0.0:8080".into());
 
         let config = Self {
             bind_addr,
-            sites_dir: optional_env("SITES_DIR")
-                .unwrap_or_else(|| format!("{}/sites", &data_dir)),
-            repos_dir: optional_env("REPOS_DIR")
-                .unwrap_or_else(|| format!("{}/repos", &data_dir)),
+            sites_dir: optional_env("SITES_DIR").unwrap_or_else(|| format!("{}/sites", &data_dir)),
+            repos_dir: optional_env("REPOS_DIR").unwrap_or_else(|| format!("{}/repos", &data_dir)),
             db_path: optional_env("DB_PATH")
                 .unwrap_or_else(|| format!("{}/site-manager.db", &data_dir)),
             data_dir,
@@ -67,15 +61,13 @@ impl Config {
             external_url,
 
             github_token: optional_env("GITHUB_TOKEN"),
-            github_app_id: optional_env("GITHUB_APP_ID")
-                .and_then(|v| v.parse().ok()),
+            github_app_id: optional_env("GITHUB_APP_ID").and_then(|v| v.parse().ok()),
             github_app_private_key: optional_env("GITHUB_APP_PRIVATE_KEY"),
             github_app_installation_id: optional_env("GITHUB_APP_INSTALLATION_ID")
                 .and_then(|v| v.parse().ok()),
             github_webhook_secret: optional_env("GITHUB_WEBHOOK_SECRET"),
 
-            caddy_bin: optional_env("CADDY_BIN")
-                .unwrap_or_else(|| "caddy".into()),
+            caddy_bin: optional_env("CADDY_BIN").unwrap_or_else(|| "caddy".into()),
             caddy_tls: optional_env("CADDY_TLS")
                 .map(|v| v.eq_ignore_ascii_case("on") || v == "true" || v == "1")
                 .unwrap_or(false),
@@ -113,7 +105,10 @@ impl Config {
         }
 
         // ALLOWED_DOMAIN should be a bare domain, not a URL or email
-        if self.allowed_domain.contains("://") || self.allowed_domain.contains('@') || self.allowed_domain.contains('/') {
+        if self.allowed_domain.contains("://")
+            || self.allowed_domain.contains('@')
+            || self.allowed_domain.contains('/')
+        {
             bail!(
                 "ALLOWED_DOMAIN should be a bare domain like 'example.com' (got '{}')",
                 self.allowed_domain

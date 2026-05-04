@@ -49,9 +49,13 @@ pub async fn list_repos(
     State(state): State<Arc<AppState>>,
     _user: AuthUser,
 ) -> Result<Json<Vec<Repo>>, AppError> {
-    let provider = state.github_token_provider.as_ref()
+    let provider = state
+        .github_token_provider
+        .as_ref()
         .ok_or_else(|| AppError::bad_request("GitHub not configured"))?;
-    let token = provider.get_token().await
+    let token = provider
+        .get_token()
+        .await
         .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?;
 
     let is_app = state.config.github_app_id.is_some();
@@ -140,9 +144,13 @@ pub async fn list_branches(
     _user: AuthUser,
     Path((owner, repo)): Path<(String, String)>,
 ) -> Result<Json<Vec<Branch>>, AppError> {
-    let provider = state.github_token_provider.as_ref()
+    let provider = state
+        .github_token_provider
+        .as_ref()
         .ok_or_else(|| AppError::bad_request("GitHub not configured"))?;
-    let token = provider.get_token().await
+    let token = provider
+        .get_token()
+        .await
         .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?;
 
     let url = format!(
@@ -161,7 +169,10 @@ pub async fn list_branches(
         .await?;
 
     Ok(Json(
-        branches.into_iter().map(|b| Branch { name: b.name }).collect(),
+        branches
+            .into_iter()
+            .map(|b| Branch { name: b.name })
+            .collect(),
     ))
 }
 
@@ -188,9 +199,13 @@ pub async fn latest_commit(
     _user: AuthUser,
     Path((owner, repo, branch)): Path<(String, String, String)>,
 ) -> Result<Json<CommitInfo>, AppError> {
-    let provider = state.github_token_provider.as_ref()
+    let provider = state
+        .github_token_provider
+        .as_ref()
         .ok_or_else(|| AppError::bad_request("GitHub not configured"))?;
-    let token = provider.get_token().await
+    let token = provider
+        .get_token()
+        .await
         .map_err(|e| AppError::bad_request(format!("GitHub auth failed: {}", e)))?;
 
     let url = format!(
@@ -210,7 +225,13 @@ pub async fn latest_commit(
 
     Ok(Json(CommitInfo {
         sha: commit.sha,
-        message: commit.commit.message.lines().next().unwrap_or("").to_string(),
+        message: commit
+            .commit
+            .message
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string(),
     }))
 }
 

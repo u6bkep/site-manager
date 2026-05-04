@@ -34,8 +34,7 @@ pub struct AppState {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -89,7 +88,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/sites", get(sites::list).post(sites::create))
         .route(
             "/api/sites/{slug}",
-            get(sites::get_site).delete(sites::delete_site).put(sites::update_site),
+            get(sites::get_site)
+                .delete(sites::delete_site)
+                .put(sites::update_site),
         )
         .route("/api/sites/{slug}/upload", post(sites::upload))
         .route("/api/sites/{slug}/deploy", post(sites::deploy))
@@ -164,15 +165,13 @@ async fn serve_site(
     let slug = path.split_once('/').map(|(s, _)| s).unwrap_or(&path);
 
     // Check if site is public
-    let is_public = sqlx::query_scalar::<_, bool>(
-        "SELECT public FROM sites WHERE slug = ?",
-    )
-    .bind(slug)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or(false);
+    let is_public = sqlx::query_scalar::<_, bool>("SELECT public FROM sites WHERE slug = ?")
+        .bind(slug)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
 
     if !is_public {
         // Check auth via session cookie

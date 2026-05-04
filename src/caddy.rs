@@ -1,12 +1,7 @@
 use crate::AppState;
 
 pub fn generate_caddyfile(state: &AppState) -> String {
-    let app_port = state
-        .config
-        .bind_addr
-        .rsplit(':')
-        .next()
-        .unwrap_or("8080");
+    let app_port = state.config.bind_addr.rsplit(':').next().unwrap_or("8080");
     let app_upstream = format!("localhost:{}", app_port);
 
     let bare_domain = state
@@ -74,7 +69,13 @@ pub async fn reload_caddy(state: &AppState) -> anyhow::Result<()> {
     tokio::fs::write(&caddyfile_path, &caddyfile_content).await?;
 
     let output = tokio::process::Command::new(&state.config.caddy_bin)
-        .args(["reload", "--config", &caddyfile_path, "--adapter", "caddyfile"])
+        .args([
+            "reload",
+            "--config",
+            &caddyfile_path,
+            "--adapter",
+            "caddyfile",
+        ])
         .output()
         .await?;
 

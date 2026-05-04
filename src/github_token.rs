@@ -56,11 +56,18 @@ impl GitHubTokenProvider {
     }
 
     async fn fetch_installation_token(&self) -> Result<String> {
-        let app_id = self.config.github_app_id
+        let app_id = self
+            .config
+            .github_app_id
             .context("GITHUB_APP_ID not configured")?;
-        let private_key = self.config.github_app_private_key.as_ref()
+        let private_key = self
+            .config
+            .github_app_private_key
+            .as_ref()
             .context("GITHUB_APP_PRIVATE_KEY not configured")?;
-        let installation_id = self.config.github_app_installation_id
+        let installation_id = self
+            .config
+            .github_app_installation_id
             .context("GITHUB_APP_INSTALLATION_ID not configured")?;
 
         // Create JWT for GitHub App authentication
@@ -72,7 +79,8 @@ impl GitHubTokenProvider {
             installation_id
         );
 
-        let resp = self.http_client
+        let resp = self
+            .http_client
             .post(&url)
             .header("Authorization", format!("Bearer {}", jwt))
             .header("User-Agent", "site-manager")
@@ -93,7 +101,9 @@ impl GitHubTokenProvider {
             expires_at: String,
         }
 
-        let token_resp: TokenResponse = resp.json().await
+        let token_resp: TokenResponse = resp
+            .json()
+            .await
             .context("failed to parse installation token response")?;
 
         let expires_at = chrono::DateTime::parse_from_rfc3339(&token_resp.expires_at)
@@ -109,7 +119,10 @@ impl GitHubTokenProvider {
             expires_at,
         });
 
-        tracing::debug!("refreshed GitHub App installation token, expires at {}", expires_at);
+        tracing::debug!(
+            "refreshed GitHub App installation token, expires at {}",
+            expires_at
+        );
         Ok(token)
     }
 }
@@ -137,6 +150,5 @@ fn create_app_jwt(app_id: u64, private_key_pem: &str) -> Result<String> {
         .context("invalid GitHub App private key (expected PEM-encoded RSA key)")?;
 
     let header = Header::new(Algorithm::RS256);
-    jsonwebtoken::encode(&header, &claims, &key)
-        .context("failed to sign JWT for GitHub App")
+    jsonwebtoken::encode(&header, &claims, &key).context("failed to sign JWT for GitHub App")
 }

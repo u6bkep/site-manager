@@ -70,9 +70,8 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         .map_err(|_| reject("Session error"))?
         .ok_or_else(|| reject("Invalid session"))?;
 
-        let expires =
-            chrono::NaiveDateTime::parse_from_str(&row.expires_at, "%Y-%m-%d %H:%M:%S")
-                .map_err(|_| reject("Session error"))?;
+        let expires = chrono::NaiveDateTime::parse_from_str(&row.expires_at, "%Y-%m-%d %H:%M:%S")
+            .map_err(|_| reject("Session error"))?;
         if expires < chrono::Utc::now().naive_utc() {
             return Err(reject("Session expired"));
         }
@@ -187,11 +186,7 @@ pub async fn google_callback(
         .get(OAUTH_STATE_COOKIE)
         .is_some_and(|c| c.value() == params.state);
     if !valid_state {
-        return (
-            clean(jar),
-            Redirect::to("/login?error=Invalid+OAuth+state"),
-        )
-            .into_response();
+        return (clean(jar), Redirect::to("/login?error=Invalid+OAuth+state")).into_response();
     }
 
     // Exchange code for token
@@ -235,7 +230,10 @@ pub async fn google_callback(
     let user_info = match state
         .http_client
         .get("https://www.googleapis.com/oauth2/v3/userinfo")
-        .header("Authorization", format!("Bearer {}", token_resp.access_token))
+        .header(
+            "Authorization",
+            format!("Bearer {}", token_resp.access_token),
+        )
         .send()
         .await
     {
@@ -303,7 +301,11 @@ pub async fn google_callback(
     session_cookie.set_same_site(SameSite::Lax);
     session_cookie.set_secure(secure);
 
-    (clean(jar).add(session_cookie), Redirect::to(&redirect_after)).into_response()
+    (
+        clean(jar).add(session_cookie),
+        Redirect::to(&redirect_after),
+    )
+        .into_response()
 }
 
 // GET /auth/verify — forward-auth endpoint for Caddy
@@ -345,30 +347,28 @@ pub async fn verify(
         .and_then(|rest| rest.split('/').next())
         .filter(|s| !s.is_empty())
     {
-        let is_public = sqlx::query_scalar::<_, bool>(
-            "SELECT public FROM sites WHERE slug = ?",
-        )
-        .bind(slug)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or(false);
+        let is_public = sqlx::query_scalar::<_, bool>("SELECT public FROM sites WHERE slug = ?")
+            .bind(slug)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(false);
 
         if is_public {
             return StatusCode::OK.into_response();
         }
     }
 
-    Redirect::to(&format!("/login?redirect={}", urlencoding::encode(original_uri)))
-        .into_response()
+    Redirect::to(&format!(
+        "/login?redirect={}",
+        urlencoding::encode(original_uri)
+    ))
+    .into_response()
 }
 
 // POST /auth/logout
-pub async fn logout(
-    State(state): State<Arc<AppState>>,
-    jar: CookieJar,
-) -> impl IntoResponse {
+pub async fn logout(State(state): State<Arc<AppState>>, jar: CookieJar) -> impl IntoResponse {
     if let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) {
         let _ = sqlx::query("DELETE FROM sessions WHERE token = ?")
             .bind(&token)
