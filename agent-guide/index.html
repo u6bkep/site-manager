@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building tools for Site Manager — a guide for AI agents</title>
+<meta name="description" content="How to build a static site or browser tool that can be hosted on Site Manager. Written for AI coding agents working with non-technical users.">
+<style>
+  :root {
+    --bg: #fafaf7;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #5c5c5c;
+    --line: #e5e3dc;
+    --accent: #2d5a4a;
+    --accent-soft: #e8f0ec;
+    --warn: #8a4a00;
+    --warn-soft: #fdf3e3;
+    --code-bg: #f4f2ec;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.55;
+    font-size: 16px;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+  header.top {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0.5rem 0 1rem;
+  }
+  h2 {
+    font-size: 1.35rem;
+    margin: 2.5rem 0 0.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+  }
+  h3 { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+  p { margin: 0.6rem 0; }
+  .lede { font-size: 1.05rem; color: #333; }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: 0.25rem 0; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: var(--code-bg);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 0.88rem;
+    line-height: 1.5;
+    border: 1px solid var(--line);
+  }
+  pre code { background: none; padding: 0; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .panel.agent {
+    background: var(--accent-soft);
+    border-color: #c5dad0;
+  }
+  .panel.warn {
+    background: var(--warn-soft);
+    border-color: #ead4ad;
+  }
+  .panel h2, .panel h3 { margin-top: 0; padding-top: 0; border-top: 0; }
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 3px;
+    background: var(--accent);
+    color: #fff;
+    vertical-align: middle;
+  }
+  .tag.warn { background: var(--warn); }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.92rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  .yes { color: var(--accent); font-weight: 600; }
+  .no  { color: #a02020; font-weight: 600; }
+  .copy-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.5rem 0;
+  }
+  button.copy {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 0.35rem 0.7rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.85rem;
+    color: var(--ink);
+  }
+  button.copy:hover { background: var(--code-bg); }
+  button.copy.ok { background: var(--accent-soft); border-color: #c5dad0; }
+  details {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  summary { cursor: pointer; font-weight: 600; }
+  details[open] summary { margin-bottom: 0.5rem; }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="eyebrow">Site Manager</div>
+  <h1>Building a tool you can host here</h1>
+  <p class="lede">
+    This page is a guide. If you're an AI assistant whose user shared this link,
+    read it end to end before writing any code — Site Manager has hard limits
+    that will quietly break a normal web project. If you're a human, skim the
+    first two sections and then hand the link to your agent.
+  </p>
+</header>
+
+<section>
+  <h2>What Site Manager is</h2>
+  <p>
+    Site Manager hosts <strong>static websites</strong> behind your company's
+    Google login. Anyone in your organization who is signed in can visit any
+    site hosted here. Each site has a URL like
+    <code>https://&lt;your-site-manager&gt;/s/&lt;slug&gt;/</code>.
+  </p>
+  <p>
+    It's designed for tools that run entirely in the browser: dashboards,
+    calculators, form-builders, internal lookup tools, single-page utilities,
+    or any HTML/CSS/JS that doesn't need a server of its own.
+  </p>
+</section>
+
+<section>
+  <h2>What it is <em>not</em> <span class="tag warn">important</span></h2>
+  <p>
+    The single biggest source of confusion. Site Manager <strong>only serves
+    static files</strong>. There is no server-side execution of any kind.
+    Specifically, none of these will work:
+  </p>
+  <table>
+    <thead><tr><th>You can't…</th><th>Why not</th></tr></thead>
+    <tbody>
+      <tr><td>Run Node, Python, PHP, Ruby, or any backend</td><td>No runtime — just a file server</td></tr>
+      <tr><td>Use Next.js / Nuxt / SvelteKit in SSR mode</td><td>Same reason. Static export only</td></tr>
+      <tr><td>Have a build step that runs at deploy time</td><td>Site Manager does not run <code>npm install</code> or <code>npm run build</code>. You build locally and upload the output</td></tr>
+      <tr><td>Use API routes (<code>/api/foo</code>) you wrote yourself</td><td>Those would need a backend</td></tr>
+      <tr><td>Connect directly to a database</td><td>No server; clients can't safely hold DB credentials anyway</td></tr>
+      <tr><td>Read environment variables / hide secrets</td><td>Everything in the bundle is visible to anyone who can load the page</td></tr>
+      <tr><td>Write files on the server, share state between users</td><td>No persistence. Use <code>localStorage</code> for per-user state, or call an external API</td></tr>
+    </tbody>
+  </table>
+  <p>
+    What you <em>can</em> do: anything that runs in a browser. Fetch external
+    HTTPS APIs (CORS permitting), use <code>localStorage</code> /
+    <code>IndexedDB</code> for per-user persistence, embed third-party widgets,
+    use any front-end framework <em>after building it down to static files</em>.
+  </p>
+</section>
+
+<div class="panel agent" id="for-agents">
+  <span class="tag">For AI agents</span>
+  <h2 style="margin-top: 0.75rem;">Instructions for building a site here</h2>
+  <p>
+    The user wants a tool that runs in the browser. Treat this section as a
+    spec. The rules below are not stylistic preferences — violating them will
+    produce a site that does not work after upload.
+  </p>
+
+  <h3>1. Default to a single self-contained <code>index.html</code></h3>
+  <p>
+    For most tools the user will ask for, the right answer is one HTML file
+    with inline <code>&lt;style&gt;</code> and <code>&lt;script&gt;</code>
+    blocks. This is the easiest thing for a non-technical user to upload and
+    redeploy — Site Manager accepts a single <code>.html</code> file directly,
+    no zipping needed. Don't reach for a framework, a bundler, or a multi-file
+    project unless the task genuinely needs it.
+  </p>
+
+  <h3>2. If you do reach for a framework, build locally first</h3>
+  <p>
+    React, Vue, Svelte, etc. are fine — but Site Manager will <strong>not</strong>
+    run your build. You must run <code>npm run build</code> (or equivalent)
+    yourself and upload the contents of <code>dist/</code> (or
+    <code>build/</code>, <code>out/</code>). Configure the framework for static
+    export. Set the base path so it works under <code>/s/&lt;slug&gt;/</code>
+    (see rule 4).
+  </p>
+
+  <h3>3. Use relative paths, never absolute</h3>
+  <p>
+    The site is served at <code>/s/&lt;slug&gt;/</code>, not at
+    <code>/</code>. A link or asset reference like <code>/style.css</code> will
+    404 — it points to the host root, not the site root. Always write
+    <code>style.css</code> or <code>./style.css</code>. Same for
+    <code>&lt;a href&gt;</code>, <code>&lt;img src&gt;</code>,
+    <code>fetch()</code> URLs that point at sibling files, etc.
+  </p>
+
+  <h3>4. <code>index.html</code> must sit at the root of the upload</h3>
+  <p>
+    If you ship a single HTML file, this is automatic — Site Manager stores it
+    as <code>index.html</code> regardless of what the file was named locally.
+    If you ship a zip, Site Manager extracts it directly into the site
+    directory, so the zip contents should look like:
+  </p>
+<pre><code>my-tool.zip
+├── index.html
+├── style.css        (optional)
+├── app.js           (optional)
+└── assets/          (optional)
+    └── logo.png</code></pre>
+  <p>
+    <strong>Not</strong> like this — a wrapping folder will break the site
+    because it puts <code>index.html</code> one level too deep:
+  </p>
+<pre><code>my-tool.zip          ← WRONG
+└── my-tool/
+    └── index.html</code></pre>
+  <p>
+    The <code>zip</code> command creates the wrong structure if you point it
+    at a folder. Always <code>cd</code> into the folder first, then zip
+    <code>.</code> (see the upload procedure below).
+  </p>
+
+  <h3>5. There are no secrets</h3>
+  <p>
+    Every byte you ship is visible in the user's browser dev tools. If the
+    user wants to call an API that requires a key, you have three options, in
+    order of preference: (a) use an API that doesn't need a key, (b) ask the
+    user to paste their own key into the page at runtime and store it in
+    <code>localStorage</code>, (c) tell the user this needs a real backend and
+    Site Manager isn't the right home for it.
+  </p>
+
+  <h3>6. External API calls work, with caveats</h3>
+  <p>
+    <code>fetch()</code> to public HTTPS APIs is fine if the API sends
+    appropriate CORS headers. If it doesn't, the browser will block the
+    request and there's nothing you can do about it from a static page —
+    that's a hard limit, not something to work around with cleverness. Don't
+    suggest a CORS proxy unless the user has one they own.
+  </p>
+
+  <h3>7. Persistence is per-browser only</h3>
+  <p>
+    <code>localStorage</code> and <code>IndexedDB</code> are scoped to the
+    user's browser. Two coworkers using the same tool will <em>not</em> see
+    each other's data. If the user expects shared state ("we both edit the
+    same list"), surface that limitation immediately — they need a backing
+    service like a Google Sheet, an Airtable, or a real backend.
+  </p>
+
+  <h3>8. Size and shape limits</h3>
+  <ul>
+    <li>Single HTML upload is capped at <strong>50 MB</strong>.</li>
+    <li>Zip extraction is capped at <strong>500 MB</strong> total.</li>
+    <li>No symlinks (they're stripped on extraction).</li>
+    <li>No <code>..</code> path traversal in zip entries (rejected).</li>
+    <li>The slug is auto-derived from the site name: lowercased, with non-alphanumeric runs collapsed to single hyphens. <code>"My Cool Tool"</code> → <code>my-cool-tool</code>.</li>
+  </ul>
+
+  <h3>9. Walking the user through upload</h3>
+  <p>
+    If you produced a single self-contained HTML file (the recommended path —
+    see rule 1), there's nothing to package. Hand the user the
+    <code>.html</code> file directly and skip to the upload steps below.
+  </p>
+  <p>
+    Only if your tool has multiple files: from the parent of the site
+    directory (call it <code>./site/</code>), run:
+  </p>
+  <div class="copy-row">
+    <pre style="flex:1; margin:0;"><code>cd site &amp;&amp; zip -r ../site.zip . &amp;&amp; cd ..</code></pre>
+    <button class="copy" data-copy="cd site && zip -r ../site.zip . && cd ..">Copy</button>
+  </div>
+  <p>The trailing <code>.</code> matters — it zips the contents, not the folder. Then tell the user, in plain language:</p>
+  <ol>
+    <li>Open Site Manager in your browser and sign in with your work Google account.</li>
+    <li>Click <strong>New Tool</strong>.</li>
+    <li>Give it a name (this becomes the URL — keep it short).</li>
+    <li>Leave <strong>Upload File</strong> selected.</li>
+    <li>Drag the <code>.html</code> or <code>.zip</code> file into the drop zone (or click and pick it).</li>
+    <li>Click <strong>Create Tool</strong>. It opens to the dashboard; click the new tool to view it.</li>
+  </ol>
+  <p>
+    For updates: open the existing tool, click <strong>Update Version</strong>,
+    drop the new file. The slug stays the same, so any links the user has
+    shared keep working.
+  </p>
+
+  <h3>10. The Git option (use only when asked)</h3>
+  <p>
+    Site Manager can also pull from a GitHub repo and auto-redeploy on push.
+    This is the right choice when the user already has a repo, or when the
+    project has multiple files they'll keep editing. To use it: pick
+    <strong>GitHub Repo</strong> instead of <strong>Upload Folder</strong>,
+    enter <code>owner/repo</code>, pick a branch, and optionally set a
+    subdirectory (e.g. <code>dist</code> if the built output lives there). The
+    same "no build step on the server" rule applies — Site Manager copies the
+    files as-is. If the user is non-technical and has no opinion, default to
+    upload; it's simpler.
+  </p>
+
+  <h3>11. When this is the wrong tool</h3>
+  <p>Stop and tell the user if the request needs any of:</p>
+  <ul>
+    <li>A real database with shared state</li>
+    <li>User accounts beyond "anyone in the company"</li>
+    <li>Scheduled background jobs</li>
+    <li>Receiving webhooks or sending email</li>
+    <li>Holding API keys that other users shouldn't see</li>
+  </ul>
+  <p>
+    Don't try to fake any of these with client-side hacks. Saying "this needs
+    a real backend" early is more helpful than shipping a broken tool.
+  </p>
+</div>
+
+<section>
+  <h2>For humans: what to do with your agent</h2>
+  <p>
+    Tell your agent what you want to build, and give it the URL of this page.
+    Something like:
+  </p>
+  <div class="panel">
+    <em>"I want a tool that &lt;does X&gt;. Read
+    <span id="this-url">this page</span> first — it explains what the hosting
+    can and can't do — then build it and walk me through uploading it."</em>
+  </div>
+  <p>
+    The agent will produce a folder with an <code>index.html</code> inside,
+    zip it, and tell you which file to drop into the upload form on Site
+    Manager. If the agent suggests something the page above says won't work
+    (a backend, a database, hidden API keys), it's worth pushing back or
+    starting over.
+  </p>
+</section>
+
+<section>
+  <h2>A worked example</h2>
+  <p>
+    The simplest possible Site Manager tool — a one-file HTML page with a
+    button that does something useful. Save this to a file and upload it
+    directly; no zipping needed.
+  </p>
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  &lt;title&gt;Word Counter&lt;/title&gt;
+  &lt;style&gt;
+    body { font-family: system-ui, sans-serif; max-width: 600px;
+           margin: 3rem auto; padding: 0 1rem; }
+    textarea { width: 100%; height: 200px; font-size: 1rem; }
+    .stat { display: inline-block; margin-right: 1.5rem; }
+  &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;h1&gt;Word Counter&lt;/h1&gt;
+  &lt;textarea id="text" placeholder="Paste text here…"&gt;&lt;/textarea&gt;
+  &lt;p&gt;
+    &lt;span class="stat"&gt;Words: &lt;b id="words"&gt;0&lt;/b&gt;&lt;/span&gt;
+    &lt;span class="stat"&gt;Characters: &lt;b id="chars"&gt;0&lt;/b&gt;&lt;/span&gt;
+  &lt;/p&gt;
+  &lt;script&gt;
+    const t = document.getElementById('text');
+    t.addEventListener('input', () =&gt; {
+      const v = t.value;
+      document.getElementById('chars').textContent = v.length;
+      document.getElementById('words').textContent =
+        v.trim() ? v.trim().split(/\s+/).length : 0;
+    });
+  &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+  <p>
+    That's the entire site. One file, no build step, no dependencies, works
+    offline once loaded. Most internal tools should look roughly like this.
+  </p>
+</section>
+
+<section>
+  <h2>Quick reference</h2>
+  <table>
+    <tbody>
+      <tr><td>Hosting model</td><td>Static files only — no server execution</td></tr>
+      <tr><td>URL pattern</td><td><code>/s/&lt;slug&gt;/</code></td></tr>
+      <tr><td>Upload formats</td><td>Single <code>.html</code> file, or <code>.zip</code> with <code>index.html</code> at the root</td></tr>
+      <tr><td>Path style</td><td>Relative (<code>style.css</code>), never absolute (<code>/style.css</code>)</td></tr>
+      <tr><td>Zip command</td><td><code>cd site &amp;&amp; zip -r ../site.zip .</code> (only needed for multi-file tools)</td></tr>
+      <tr><td>Max size</td><td>50 MB for single HTML, 500 MB for zip</td></tr>
+      <tr><td>Auth</td><td>Google Workspace SSO; private to your domain by default</td></tr>
+      <tr><td>Storage</td><td><code>localStorage</code> / <code>IndexedDB</code>, per browser</td></tr>
+      <tr><td>External APIs</td><td>HTTPS + CORS-enabled only</td></tr>
+      <tr><td>Build step</td><td>Run it locally, upload the output</td></tr>
+      <tr><td>Updates</td><td>Re-upload via <strong>Update Version</strong>, or push to the connected Git branch</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  <p>This guide is itself a Site Manager site. Single file, no JavaScript framework, uploaded as a single <code>.html</code> — exactly the shape it recommends.</p>
+</footer>
+
+</div>
+
+<script>
+  // Show the current URL in the "give your agent this link" box.
+  const u = document.getElementById('this-url');
+  if (u) u.textContent = location.href;
+
+  // Copy buttons for inline shell commands.
+  document.querySelectorAll('button.copy').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        const orig = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('ok');
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.classList.remove('ok');
+        }, 1200);
+      } catch (e) { /* clipboard blocked — ignore */ }
+    });
+  });
+</script>
+</body>
+</html>
